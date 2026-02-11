@@ -19,7 +19,7 @@ class FoodsScreen extends StatelessWidget {
         itemBuilder: (ctx, i) {
           final f = foods[i];
           return ListTile(
-            title: Text(f['name']!),
+            title: Text(f['name'] as String),
             trailing: Text('${f['cal']} kcal'),
           );
         },
