@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/shared_preference_helper.dart';
-import 'register.dart';
+import 'package:food_dairy/registration/register.dart';
 import 'welcome.dart';
 
 void main() {

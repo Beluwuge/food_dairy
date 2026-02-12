@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'services/shared_preference_helper.dart';
-import 'main.dart';
+import 'package:food_dairy/services/shared_preference_helper.dart';
+import 'package:food_dairy/main.dart';
 
 class RegistrationPage extends StatefulWidget {
-  const RegistrationPage({super.key});;
+  const RegistrationPage({super.key});
 
   @override
   State<RegistrationPage> createState() => _RegistrationPageState();
