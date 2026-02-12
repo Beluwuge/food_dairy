@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'shared_preference_helper.dart';
+import 'services/shared_preference_helper.dart';
 import 'register.dart';
 import 'welcome.dart';
-// Insert your codes here
 
 void main() {
   runApp(const MyApp());
