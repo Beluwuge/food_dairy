@@ -86,7 +86,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
                   Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) =>
-                          MyLoginPage(title: "Login Page")));
+                          LoginScreen()));
                 }
               },
               child: Text("Create New Account"),
@@ -96,7 +96,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
                 Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) =>
-                        MyLoginPage(title: "Login Page")));
+                        LoginScreen()));
               },
               child: Text("Cancel"),
             ),
