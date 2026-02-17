@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+
+import 'services/google_auth_helper.dart';
 import 'services/shared_preference_helper.dart';
+import 'package:firebase_core/firebase_core.dart';
+
 import 'package:food_dairy/registration/register.dart';
 import 'welcome.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 
@@ -100,11 +106,14 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
-      // TODO: Implement Google login logic.
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+      final userCredential = await signInWithGoogle();
+
+      print("User signed in: ${userCredential.user?.email}");
+
+      // Navigate after login
+      Navigator.pushReplacementNamed(context, '/home');
+    } catch (e) {
+      print("Sign in error: $e");
     }
   }
 

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "754586931451",
+    "project_id": "food-dairy-e6d6d",
+    "storage_bucket": "food-dairy-e6d6d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:754586931451:android:b14be323317ed28e97205e",
+        "android_client_info": {
+          "package_name": "com.zest.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCni2JshrpfoIb6uE76JiNwpwS0rB757Wo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
