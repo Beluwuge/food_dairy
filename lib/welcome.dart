@@ -116,7 +116,7 @@ class _WelcomePageState extends State<WelcomePage> {
                   Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) =>
-                          MyLoginPage(title: "Login Page")));
+                          LoginScreen()));
                 }
               },
               child: Text("Update"),
@@ -128,7 +128,7 @@ class _WelcomePageState extends State<WelcomePage> {
                 Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) =>
-                        MyLoginPage(title: "Login Page")));
+                        LoginScreen()));
               },
               child: Text("Log out"),
             ),
