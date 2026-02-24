@@ -4,7 +4,7 @@ import 'package:firebase_analytics/firebase_analytics.dart';
 
 import 'services/shared_preference_helper.dart';
 import 'package:food_dairy/registration/register.dart';
-import 'profile.dart';
+import 'package:food_dairy/tabs/tabs_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,14 +12,28 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
+class StorageKeys {
+  static const session = 'session'; // {"isLoggedIn": true, "username": "..."}
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      title: 'Login',
+    return MaterialApp(
+      title: 'FoodDiary',
       debugShowCheckedModeBanner: false,
-      home: LoginScreen(),
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: AppColors.bgPrimary,
+      ),
+      initialRoute: '/login',
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/register': (_) => const RegistrationPage(),
+        '/tabs': (_) => const TabsScreen(),
+      },
     );
   }
 }
@@ -41,6 +55,7 @@ class _Dimens {
   static const fieldPadding = EdgeInsets.all(16);
   static const buttonVPadding = EdgeInsets.symmetric(vertical: 16);
   static const r8 = 8.0;
+
   static const gap8 = SizedBox(height: 8);
   static const gap12 = SizedBox(height: 12);
   static const gap16 = SizedBox(height: 16);
@@ -56,12 +71,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Existing controllers (integrated)
   final accountName = TextEditingController();
   final accountPass = TextEditingController();
   final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
 
-  bool _checkingSession = false;
+  bool _checkingSession = true;
   bool _loading = false;
 
   String displayTxt = "";
@@ -87,12 +101,17 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkSession() async {
-    setState(() => _checkingSession = true);
+    try {
+      final session = await SharedPreferenceHelper.getMap(StorageKeys.session);
+      final isLoggedIn = session['isLoggedIn'] == true;
 
-    // If your SharedPreferenceHelper supports a "current user"/session flag,
-    // you can restore & navigate here. Keeping it safe/no-op by default.
-
-    if (mounted) setState(() => _checkingSession = false);
+      if (isLoggedIn && mounted) {
+        Navigator.pushReplacementNamed(context, '/tabs');
+        return;
+      }
+    } finally {
+      if (mounted) setState(() => _checkingSession = false);
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -104,21 +123,16 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
-      // GA4: user activity (button press)
       await analytics.logEvent(
         name: 'login_button_press',
         parameters: {
           'screen': 'login',
-          'has_username': nameInput.isNotEmpty ? 1 : 0,
+          'has_username': nameInput.isNotEmpty ? 1 : 0, // num only
         },
       );
 
       final Map<String, dynamic> userData =
       await SharedPreferenceHelper.getMap("userlist");
-
-      // Optional: inspect stored structure (remove later)
-      debugPrint('userlist keys: ${userData.keys}');
-      debugPrint('user record for $nameInput: ${userData[nameInput]}');
 
       if (nameInput.isEmpty || passInput.isEmpty) {
         await analytics.logEvent(
@@ -138,7 +152,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // ---- Robust password extraction (supports List or Map storage) ----
+      // Stored format: userData[name] = [password, false]
       final dynamic record = userData[nameInput];
 
       String? storedPassword;
@@ -165,7 +179,6 @@ class _LoginScreenState extends State<LoginScreen> {
         updateDisplay("Wrong password");
         return;
       }
-      // -----------------------------------------------------------------
 
       // Success
       await analytics.logEvent(
@@ -176,13 +189,16 @@ class _LoginScreenState extends State<LoginScreen> {
         },
       );
 
+      // Front-end only session flag
+      await SharedPreferenceHelper.saveMap(StorageKeys.session, {
+        'isLoggedIn': true,
+        'username': nameInput,
+      });
+
       updateDisplay("Login successfully", isError: false);
 
       if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => ProfilePage()),
-      );
+      Navigator.pushReplacementNamed(context, '/tabs');
     } catch (e) {
       debugPrint('Login exception: $e');
       await analytics.logEvent(
@@ -196,14 +212,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _goToRegister() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const RegistrationPage()),
-    );
+    Navigator.pushNamed(context, '/register');
   }
 
   Future<void> _handleGoogleLogin() async {
-    // Placeholder (kept from previous UI). Implement if/when you add Google Sign-In.
     updateDisplay("Google login not implemented.", isError: true);
   }
 
