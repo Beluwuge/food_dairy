@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
+
 import 'services/shared_preference_helper.dart';
 import 'package:food_dairy/registration/register.dart';
-import 'welcome.dart';
+import 'profile.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 
@@ -54,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
   // Existing controllers (integrated)
   final accountName = TextEditingController();
   final accountPass = TextEditingController();
+  final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
 
   bool _checkingSession = false;
   bool _loading = false;
@@ -71,6 +77,12 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+
+    analytics.logScreenView(
+      screenName: 'login_screen',
+      screenClass: 'LoginScreen',
+    );
+
     _checkSession();
   }
 
@@ -90,34 +102,93 @@ class _LoginScreenState extends State<LoginScreen> {
     final passInput = accountPass.text;
 
     setState(() => _loading = true);
+
     try {
+      // GA4: user activity (button press)
+      await analytics.logEvent(
+        name: 'login_button_press',
+        parameters: {
+          'screen': 'login',
+          'has_username': nameInput.isNotEmpty ? 1 : 0,
+        },
+      );
+
       final Map<String, dynamic> userData =
       await SharedPreferenceHelper.getMap("userlist");
 
+      // Optional: inspect stored structure (remove later)
+      debugPrint('userlist keys: ${userData.keys}');
+      debugPrint('user record for $nameInput: ${userData[nameInput]}');
+
       if (nameInput.isEmpty || passInput.isEmpty) {
+        await analytics.logEvent(
+          name: 'login_failed',
+          parameters: {'reason': 'empty_fields', 'screen': 'login'},
+        );
         updateDisplay("username or Password cannot be empty.");
         return;
       }
 
       if (!userData.containsKey(nameInput)) {
+        await analytics.logEvent(
+          name: 'login_failed',
+          parameters: {'reason': 'wrong_username', 'screen': 'login'},
+        );
         updateDisplay("Wrong username");
         return;
       }
 
-      // Your stored structure appears to be: userData[name][0] == password
-      if (userData[nameInput][0] != passInput) {
+      // ---- Robust password extraction (supports List or Map storage) ----
+      final dynamic record = userData[nameInput];
+
+      String? storedPassword;
+      if (record is List && record.isNotEmpty) {
+        storedPassword = record[0]?.toString();
+      } else if (record is Map) {
+        storedPassword = record['password']?.toString();
+      }
+
+      if (storedPassword == null) {
+        await analytics.logEvent(
+          name: 'login_failed',
+          parameters: {'reason': 'corrupt_user_record', 'screen': 'login'},
+        );
+        updateDisplay("Account data is invalid. Please re-register.");
+        return;
+      }
+
+      if (storedPassword != passInput) {
+        await analytics.logEvent(
+          name: 'login_failed',
+          parameters: {'reason': 'wrong_password', 'screen': 'login'},
+        );
         updateDisplay("Wrong password");
         return;
       }
+      // -----------------------------------------------------------------
+
+      // Success
+      await analytics.logEvent(
+        name: 'login_success',
+        parameters: {
+          'screen': 'login',
+          'username_length': nameInput.length,
+        },
+      );
 
       updateDisplay("Login successfully", isError: false);
 
       if (!mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => WelcomePage()),
+        MaterialPageRoute(builder: (context) => ProfilePage()),
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Login exception: $e');
+      await analytics.logEvent(
+        name: 'login_failed',
+        parameters: {'reason': 'exception', 'screen': 'login'},
+      );
       updateDisplay("Login failed. Please try again.");
     } finally {
       if (mounted) setState(() => _loading = false);
