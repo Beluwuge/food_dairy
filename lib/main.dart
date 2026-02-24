@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'services/shared_preference_helper.dart';
-import 'profile.dart';
+import 'package:food_dairy/registration/register.dart';
+import 'welcome.dart';
 
 void main() {
-  runApp(const MyApp());//yes
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -114,7 +115,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => ProfilePage()),
+        MaterialPageRoute(builder: (context) => WelcomePage()),
       );
     } catch (_) {
       updateDisplay("Login failed. Please try again.");
@@ -126,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _goToRegister() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const ProfilePage()),
+      MaterialPageRoute(builder: (context) => const RegistrationPage()),
     );
   }
 
@@ -333,7 +334,7 @@ class _Header extends StatelessWidget {
         Icon(Icons.restaurant, size: 64, color: AppColors.textPrimary),
         SizedBox(height: 16),
         Text(
-          'Zest App',
+          'FoodDiary',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.bold,
