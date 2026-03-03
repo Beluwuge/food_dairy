@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:food_dairy/profile.dart';
+import 'package:food_dairy/profile/profile_hub_page.dart';
 import 'package:food_dairy/services/camera/camera_page.dart';
+import 'package:food_dairy/recipe_grid_page.dart';
 
 class AppColors {
   static const bgPrimary = Color(0xFF000000);
@@ -23,9 +24,9 @@ class _TabsScreenState extends State<TabsScreen> {
   int _index = 0;
 
   final _pages = const <Widget>[
-    HomePlaceholderPage(),
+    RecipeGridPage(),
     CameraPage(),
-    ProfilePage(),
+    ProfileHubPage(),
   ];
 
   @override
