@@ -103,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _checkSession() async {
     try {
       final session = await SharedPreferenceHelper.getMap(StorageKeys.session);
-      final isLoggedIn = session['isLoggedIn'] == true;
+      final isLoggedIn = session['isLoggedIn'] == false;
 
       if (isLoggedIn && mounted) {
         Navigator.pushReplacementNamed(context, '/tabs');
