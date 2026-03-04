@@ -100,12 +100,14 @@ class _LoginScreenState extends State<LoginScreen> {
     _checkSession();
   }
 
+  // ✅ FIXED: correct isLoggedIn check + requires username
   Future<void> _checkSession() async {
     try {
       final session = await SharedPreferenceHelper.getMap(StorageKeys.session);
-      final isLoggedIn = session['isLoggedIn'] == false;
+      final bool isLoggedIn = session['isLoggedIn'] == true;
+      final String username = (session['username'] ?? '').toString().trim();
 
-      if (isLoggedIn && mounted) {
+      if (isLoggedIn && username.isNotEmpty && mounted) {
         Navigator.pushReplacementNamed(context, '/tabs');
         return;
       }
@@ -127,7 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
         name: 'login_button_press',
         parameters: {
           'screen': 'login',
-          'has_username': nameInput.isNotEmpty ? 1 : 0, // num only
+          'has_username': nameInput.isNotEmpty ? 1 : 0, // GA4: num/string only
         },
       );
 
@@ -152,7 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // Stored format: userData[name] = [password, false]
+      // Stored format: userData[name] = [password, false] OR map
       final dynamic record = userData[nameInput];
 
       String? storedPassword;
@@ -180,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // Success
+      // ✅ Success
       await analytics.logEvent(
         name: 'login_success',
         parameters: {
@@ -189,11 +191,11 @@ class _LoginScreenState extends State<LoginScreen> {
         },
       );
 
-      // Front-end only session flag
-      await SharedPreferenceHelper.saveMap(StorageKeys.session, {
-        'isLoggedIn': true,
-        'username': nameInput,
-      });
+      // ✅ Store session properly (also works with your new helper)
+      await SharedPreferenceHelper.setSession(
+        username: nameInput,
+        isLoggedIn: true,
+      );
 
       updateDisplay("Login successfully", isError: false);
 

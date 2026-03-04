@@ -74,22 +74,28 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
 
   Future<void> _loadAll() async {
     setState(() => _loading = true);
+
     try {
-      final profile = await SharedPreferenceHelper.getMap(StorageKeys.profile);
-      final water = await SharedPreferenceHelper.getMap(StorageKeys.waterLog);
-      final posts = await AppDatabase.instance.getAllDishes();
-      final intakeRows = await AppDatabase.instance.getDailyIntakeRaw(_todayKey);
+      final username = await SharedPreferenceHelper.currentUsername();
+      if (username == null) return;
 
-      _name = (profile['name'] ?? 'User').toString();
-      _age = (profile['age'] is num) ? (profile['age'] as num).toInt() : int.tryParse('${profile['age'] ?? ''}');
-      _weightKg = (profile['weightKg'] is num) ? (profile['weightKg'] as num).toDouble() : double.tryParse('${profile['weightKg'] ?? ''}');
-      _heightCm = (profile['heightCm'] is num) ? (profile['heightCm'] as num).toDouble() : double.tryParse('${profile['heightCm'] ?? ''}');
+      final profile = await SharedPreferenceHelper.getUserMap(
+        StorageKeys.profile,
+        username,
+      );
 
-      _activity = (profile['activity'] ?? 'light').toString();
-      if (!_activityFactor.containsKey(_activity)) _activity = 'light';
+      final water = await SharedPreferenceHelper.getUserMap(
+        StorageKeys.waterLog,
+        username,
+      );
 
-      final todayWater = water[_todayKey];
-      _todayWaterMl = (todayWater is num) ? todayWater.toInt() : 0;
+      final posts = await AppDatabase.instance.getDishesByUser(username);
+
+      final intakeRows =
+      await AppDatabase.instance.getDailyIntakeRawForUser(
+        username: username,
+        dateKey: _todayKey,
+      );
 
       _allPosts = posts;
 
@@ -138,9 +144,22 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
   }
 
   Future<void> _saveActivity(String activity) async {
+    final username = await SharedPreferenceHelper.currentUsername();
+    if (username == null) return;
+
     _activity = activity;
-    final profile = await SharedPreferenceHelper.getMap(StorageKeys.profile);
-    await SharedPreferenceHelper.saveMap(StorageKeys.profile, {...profile, 'activity': activity});
+
+    final profile = await SharedPreferenceHelper.getUserMap(
+      StorageKeys.profile,
+      username,
+    );
+
+    await SharedPreferenceHelper.saveUserMap(
+      StorageKeys.profile,
+      username,
+      {...profile, 'activity': activity},
+    );
+
     setState(_recompute);
   }
 
@@ -156,9 +175,21 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
   }
 
   Future<void> _saveWater() async {
-    final water = await SharedPreferenceHelper.getMap(StorageKeys.waterLog);
+    final username = await SharedPreferenceHelper.currentUsername();
+    if (username == null) return;
+
+    final water = await SharedPreferenceHelper.getUserMap(
+      StorageKeys.waterLog,
+      username,
+    );
+
     water[_todayKey] = _todayWaterMl;
-    await SharedPreferenceHelper.saveMap(StorageKeys.waterLog, water);
+
+    await SharedPreferenceHelper.saveUserMap(
+      StorageKeys.waterLog,
+      username,
+      water,
+    );
   }
 
   Future<void> _addWater(int ml) async {

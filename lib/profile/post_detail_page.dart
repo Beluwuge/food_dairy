@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:food_dairy/services/db/dish_entry.dart';
+import 'package:food_dairy/profile/edit_post_page.dart'; // ✅ add this
 
 class AppColors {
   static const bgPrimary = Color(0xFF000000);
@@ -37,7 +38,10 @@ class _PostDetailPageState extends State<PostDetailPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.bgElevated,
-        title: const Text('Delete post?', style: TextStyle(color: AppColors.textPrimary)),
+        title: const Text(
+          'Delete post?',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
         content: const Text(
           'This will remove the post and delete the saved image from storage.',
           style: TextStyle(color: AppColors.textSecondary),
@@ -73,6 +77,20 @@ class _PostDetailPageState extends State<PostDetailPage> {
     }
   }
 
+  Future<void> _editPost() async {
+    final edited = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditPostPage(entry: widget.entry),
+      ),
+    );
+
+    // If edited, pop and let ProfileHub reload (or return to rebuild detail)
+    if (edited == true && mounted) {
+      Navigator.pop(context, true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final e = widget.entry;
@@ -84,6 +102,12 @@ class _PostDetailPageState extends State<PostDetailPage> {
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
         title: const Text('Post'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: _editPost,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -141,7 +165,10 @@ class _PostDetailPageState extends State<PostDetailPage> {
                           ? const SizedBox(
                         height: 18,
                         width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                           : const Icon(Icons.delete_outline, color: Colors.white),
                       label: Text(

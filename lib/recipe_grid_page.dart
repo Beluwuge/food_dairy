@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import 'services/db/mealdb_api.dart';
-import 'services/db/nutrition_api.dart';
 import 'services/db/meal_ingredients.dart';
+import 'services/db/usda_nutrition_api.dart';
+import 'services/db/calorie_estimator.dart';
 
 class RecipeGridPage extends StatefulWidget {
   const RecipeGridPage({super.key});
@@ -14,25 +15,74 @@ class RecipeGridPage extends StatefulWidget {
 
 class _RecipeGridPageState extends State<RecipeGridPage> {
   final _api = MealDbApi();
+  final _scroll = ScrollController();
 
-  // Simple feed: choose a letter; later you can replace with search/filter
-  String _letter = 'a';
-  late Future<List<Map<String, dynamic>>> _mealsFuture;
+  // USDA key
+  static const String _usdaKey = '0aywdxu7epTDBs9RAFhlCbAUqvw1AHFfTvg4x4bc';
+  late final CalorieEstimator _estimator =
+  CalorieEstimator(UsdaNutritionApi(apiKey: _usdaKey));
 
-  // Cache full meal details so we don't refetch on every tap
+  // Feed letters a..z auto-load
+  int _letterIndex = 0; // 0=a
+  bool _loadingMore = false;
+  bool _done = false;
+
+  // Combined list across letters
+  final List<Map<String, dynamic>> _meals = [];
+
+  // Cache full meal details so we don't refetch
   final Map<String, Map<String, dynamic>> _mealDetailsCache = {};
+  // Cache calories per meal id
+  final Map<String, int> _calorieCache = {};
 
   @override
   void initState() {
     super.initState();
-    _mealsFuture = _api.listMealsByFirstLetter(_letter);
+    _loadNextFeed();
+
+    _scroll.addListener(() {
+      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
+        _loadNextFeed();
+      }
+    });
   }
 
-  Future<void> _reload(String letter) async {
-    setState(() {
-      _letter = letter;
-      _mealsFuture = _api.listMealsByFirstLetter(_letter);
-    });
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  String _currentLetter() => String.fromCharCode('a'.codeUnitAt(0) + _letterIndex);
+
+  Future<void> _loadNextFeed() async {
+    if (_loadingMore || _done) return;
+    if (_letterIndex > 25) {
+      setState(() => _done = true);
+      return;
+    }
+
+    setState(() => _loadingMore = true);
+    try {
+      final letter = _currentLetter();
+      final nextMeals = await _api.listMealsByFirstLetter(letter);
+
+      // Add only if not empty; still move to next letter either way (to avoid infinite loop)
+      if (nextMeals.isNotEmpty) {
+        _meals.addAll(nextMeals);
+      }
+
+      _letterIndex++;
+      if (_letterIndex > 25) _done = true;
+      if (mounted) setState(() {});
+    } catch (e) {
+      // If a letter feed fails, skip it and continue
+      _letterIndex++;
+      if (_letterIndex > 25) _done = true;
+      if (mounted) setState(() {});
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
   }
 
   Future<Map<String, dynamic>> _getMealDetails(Map<String, dynamic> meal) async {
@@ -42,12 +92,24 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
     final cached = _mealDetailsCache[id];
     if (cached != null) return cached;
 
-    // search.php returns full meal details already; but keep this robust
+    // Some endpoints already return full details; check ingredient field
     final hasIngredients = meal.containsKey('strIngredient1');
     final details = hasIngredients ? meal : await _api.lookupMealById(id);
 
     _mealDetailsCache[id] = details;
     return details;
+  }
+
+  Future<int?> _getCaloriesForMeal(Map<String, dynamic> meal) async {
+    final id = (meal['idMeal'] ?? '').toString();
+    if (id.isEmpty) return null;
+
+    final cached = _calorieCache[id];
+    if (cached != null) return cached;
+
+    final kcal = await _estimator.estimateMealCalories(meal);
+    if (kcal != null) _calorieCache[id] = kcal;
+    return kcal;
   }
 
   Future<void> _openPost(BuildContext context, Map<String, dynamic> meal) async {
@@ -61,7 +123,10 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _RecipePostSheet(meal: details),
+      builder: (_) => _RecipePostSheet(
+        meal: details,
+        getCalories: _getCaloriesForMeal,
+      ),
     );
   }
 
@@ -73,73 +138,65 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
         backgroundColor: const Color(0xFF000000),
         elevation: 0,
         title: const Text('Recipes'),
-        actions: [
-          _LetterMenu(
-            current: _letter,
-            onPick: (l) => _reload(l),
-          ),
-        ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _mealsFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'Load failed: ${snap.error}',
-                  style: const TextStyle(color: Colors.white70),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          }
-
-          final meals = snap.data ?? [];
-          if (meals.isEmpty) {
-            return const Center(
-              child: Text('No meals found', style: TextStyle(color: Colors.white70)),
-            );
-          }
-
-          return GridView.builder(
-            padding: const EdgeInsets.all(2),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 2,
-              mainAxisSpacing: 2,
-              childAspectRatio: 1,
-            ),
-            itemCount: meals.length,
-            itemBuilder: (context, i) {
-              final m = meals[i];
-              final thumb = (m['strMealThumb'] ?? '').toString();
-
-              return InkWell(
-                onTap: () => _openPost(context, m),
-                child: Container(
-                  color: const Color(0xFF121212),
-                  child: CachedNetworkImage(
-                    imageUrl: thumb,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => const Center(
-                      child: SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    errorWidget: (_, __, ___) => const Center(
-                      child: Icon(Icons.broken_image, color: Colors.white54),
-                    ),
+      body: _meals.isEmpty && _loadingMore
+          ? const Center(child: CircularProgressIndicator())
+          : GridView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.all(2),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 2,
+          mainAxisSpacing: 2,
+          childAspectRatio: 1,
+        ),
+        itemCount: _meals.length + 1, // +1 for footer loader
+        itemBuilder: (context, i) {
+          if (i == _meals.length) {
+            if (_done) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Text(
+                    'No more feeds',
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ),
               );
-            },
+            }
+            return Center(
+              child: _loadingMore
+                  ? const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const SizedBox.shrink(),
+            );
+          }
+
+          final m = _meals[i];
+          final thumb = (m['strMealThumb'] ?? '').toString();
+
+          return InkWell(
+            onTap: () => _openPost(context, m),
+            child: Container(
+              color: const Color(0xFF121212),
+              child: CachedNetworkImage(
+                imageUrl: thumb,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const Center(
+                  child: SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+                errorWidget: (_, __, ___) => const Center(
+                  child: Icon(Icons.broken_image, color: Colors.white54),
+                ),
+              ),
+            ),
           );
         },
       ),
@@ -148,9 +205,13 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
 }
 
 class _RecipePostSheet extends StatelessWidget {
-  const _RecipePostSheet({required this.meal});
+  const _RecipePostSheet({
+    required this.meal,
+    required this.getCalories,
+  });
 
   final Map<String, dynamic> meal;
+  final Future<int?> Function(Map<String, dynamic>) getCalories;
 
   @override
   Widget build(BuildContext context) {
@@ -173,7 +234,6 @@ class _RecipePostSheet extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Post media (square like IG)
                 AspectRatio(
                   aspectRatio: 1,
                   child: CachedNetworkImage(
@@ -185,7 +245,6 @@ class _RecipePostSheet extends StatelessWidget {
                   ),
                 ),
 
-                // Header row
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
                   child: Row(
@@ -216,7 +275,6 @@ class _RecipePostSheet extends StatelessWidget {
                   ),
                 ),
 
-                // Meta chips
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Wrap(
@@ -225,15 +283,22 @@ class _RecipePostSheet extends StatelessWidget {
                     children: [
                       _Chip(text: category.isEmpty ? 'Unknown category' : category),
                       _Chip(text: area.isEmpty ? 'Unknown area' : area),
-                      // Calories placeholder (you’ll wire later)
-                      const _Chip(text: 'Calories: (later)'),
+                      FutureBuilder<int?>(
+                        future: getCalories(meal),
+                        builder: (context, snap) {
+                          if (snap.connectionState != ConnectionState.done) {
+                            return const _Chip(text: 'Calories: ...');
+                          }
+                          final kcal = snap.data;
+                          return _Chip(text: kcal == null ? 'Calories: N/A' : 'Calories: $kcal kcal');
+                        },
+                      ),
                     ],
                   ),
                 ),
 
                 const SizedBox(height: 14),
 
-                // Ingredients
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
@@ -273,7 +338,6 @@ class _RecipePostSheet extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
-                // Instructions
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
@@ -315,37 +379,6 @@ class _Chip extends StatelessWidget {
         text,
         style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
       ),
-    );
-  }
-}
-
-class _LetterMenu extends StatelessWidget {
-  const _LetterMenu({required this.current, required this.onPick});
-
-  final String current;
-  final ValueChanged<String> onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.tune),
-      onSelected: onPick,
-      itemBuilder: (_) {
-        const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
-        return letters
-            .map(
-              (l) => PopupMenuItem(
-            value: l,
-            child: Row(
-              children: [
-                Expanded(child: Text('Feed: "$l"')),
-                if (l == current) const Icon(Icons.check, size: 16),
-              ],
-            ),
-          ),
-        )
-            .toList();
-      },
     );
   }
 }

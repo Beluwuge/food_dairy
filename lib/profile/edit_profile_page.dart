@@ -11,7 +11,8 @@ class AppColors {
 }
 
 class StorageKeys {
-  static const profile = 'profile';
+  static const profile = 'profile'; // base key -> we store profile_<username>
+  static const session = 'session'; // {"isLoggedIn": true, "username": "..."}
 }
 
 class EditProfilePage extends StatefulWidget {
@@ -28,6 +29,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final _heightCtrl = TextEditingController();
 
   bool _loading = true;
+  String? _username; // ✅ current logged-in username
+
+  String get _profileKey {
+    final u = _username ?? '';
+    return '${StorageKeys.profile}_$u'; // profile_<username>
+  }
 
   @override
   void initState() {
@@ -46,7 +53,20 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   Future<void> _load() async {
     try {
-      final p = await SharedPreferenceHelper.getMap(StorageKeys.profile);
+      // ✅ read session username
+      final session = await SharedPreferenceHelper.getMap(StorageKeys.session);
+      final username = (session['username'] ?? '').toString().trim();
+
+      if (username.isEmpty) {
+        _err('No logged-in user found. Please login again.');
+        return;
+      }
+
+      _username = username;
+
+      // ✅ load profile_<username>
+      final p = await SharedPreferenceHelper.getMap(_profileKey);
+
       _nameCtrl.text = (p['name'] ?? '').toString();
       _ageCtrl.text = (p['age'] ?? '').toString();
       _weightCtrl.text = (p['weightKg'] ?? '').toString();
@@ -62,23 +82,30 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final w = double.tryParse(_weightCtrl.text.trim());
     final h = double.tryParse(_heightCtrl.text.trim());
 
+    if (_username == null || _username!.trim().isEmpty) {
+      _err('No logged-in user found. Please login again.');
+      return;
+    }
+
     if (name.isEmpty || age == null || w == null || h == null || age <= 0 || w <= 0 || h <= 0) {
       _err('Enter valid name, age, weight, height.');
       return;
     }
 
-    final existing = await SharedPreferenceHelper.getMap(StorageKeys.profile);
+    final existing = await SharedPreferenceHelper.getMap(_profileKey);
 
-    await SharedPreferenceHelper.saveMap(StorageKeys.profile, {
+    await SharedPreferenceHelper.saveMap(_profileKey, {
       ...existing,
       'name': name,
       'age': age,
       'weightKg': w,
       'heightCm': h,
+      // keep activity if you use it later
+      // 'activity': existing['activity'] ?? 'light',
     });
 
     if (!mounted) return;
-    Navigator.pop(context);
+    Navigator.pop(context, true);
   }
 
   void _err(String m) {
@@ -87,7 +114,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
       builder: (_) => AlertDialog(
         title: const Text('Error'),
         content: Text(m),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+        ],
       ),
     );
   }
@@ -103,8 +132,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
         title: const Text('Edit profile'),
         actions: [
           TextButton(
-            onPressed: _save,
-            child: const Text('Save', style: TextStyle(color: AppColors.accentPrimary, fontWeight: FontWeight.w800)),
+            onPressed: _loading ? null : _save,
+            child: const Text(
+              'Save',
+              style: TextStyle(color: AppColors.accentPrimary, fontWeight: FontWeight.w800),
+            ),
           ),
         ],
       ),
@@ -114,13 +146,31 @@ class _EditProfilePageState extends State<EditProfilePage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            if (_username != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Account: $_username',
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
+            if (_username != null) const SizedBox(height: 12),
+
             _Field(ctrl: _nameCtrl, label: 'Name', keyboardType: TextInputType.name),
             const SizedBox(height: 12),
             _Field(ctrl: _ageCtrl, label: 'Age', keyboardType: TextInputType.number),
             const SizedBox(height: 12),
-            _Field(ctrl: _weightCtrl, label: 'Weight (kg)', keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+            _Field(
+              ctrl: _weightCtrl,
+              label: 'Weight (kg)',
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
             const SizedBox(height: 12),
-            _Field(ctrl: _heightCtrl, label: 'Height (cm)', keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+            _Field(
+              ctrl: _heightCtrl,
+              label: 'Height (cm)',
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
           ],
         ),
       ),
@@ -146,9 +196,18 @@ class _Field extends StatelessWidget {
         labelStyle: const TextStyle(color: AppColors.textSecondary),
         filled: true,
         fillColor: AppColors.bgElevated,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.divider)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.divider)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.accentPrimary)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.divider),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.divider),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.accentPrimary),
+        ),
       ),
     );
   }

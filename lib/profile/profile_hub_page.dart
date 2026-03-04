@@ -19,7 +19,7 @@ class AppColors {
 }
 
 class StorageKeys {
-  static const profile = 'profile'; // {"name":..., "age":..., "weightKg":..., "heightCm":..., "activity": "light"}
+  static const profile = 'profile'; // stored as profile_<username>
 }
 
 class ProfileHubPage extends StatefulWidget {
@@ -36,6 +36,8 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
   String _displayName = 'User';
   String _username = '';
 
+  String _profileKeyFor(String username) => '${StorageKeys.profile}_$username';
+
   @override
   void initState() {
     super.initState();
@@ -44,18 +46,28 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
 
   Future<void> _loadAll() async {
     setState(() => _loading = true);
+
     try {
-      final profile = await SharedPreferenceHelper.getMap(StorageKeys.profile);
-      final posts = await AppDatabase.instance.getAllDishes();
+      final username = await SharedPreferenceHelper.currentUsername();
+      if (username == null || username.trim().isEmpty) {
+        // No session user
+        _username = '';
+        _displayName = 'User';
+        _posts = [];
+        return;
+      }
+
+      _username = username.trim();
+
+      // ✅ user-specific profile
+      final profile = await SharedPreferenceHelper.getMap(_profileKeyFor(_username));
 
       _displayName = (profile['name']?.toString().trim().isNotEmpty == true)
           ? profile['name'].toString().trim()
-          : 'User';
+          : _username;
 
-      // Optional: if you have session username saved elsewhere, load it
-      // _username = (await SharedPreferenceHelper.getMap('session'))['username'] ?? 'fooddiary';
-
-      _posts = posts;
+      // ✅ user-specific posts
+      _posts = await AppDatabase.instance.getDishesByUser(_username);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -66,7 +78,7 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
       context,
       MaterialPageRoute(builder: (_) => const EditProfilePage()),
     );
-    _loadAll();
+    await _loadAll();
   }
 
   void _openHealth() {
@@ -76,7 +88,6 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
     );
   }
 
-  // ✅ UPDATED: now awaits return value, passes onDelete, refreshes if deleted
   Future<void> _openPost(DishEntry post) async {
     final deleted = await Navigator.push<bool>(
       context,
@@ -117,13 +128,11 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const SettingsPage(), // or SettingsPage()
-                ),
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
               );
             },
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
         ],
       ),
       body: RefreshIndicator(
@@ -214,7 +223,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                 hasScrollBody: false,
                 child: Center(
                   child: Text(
-                    'No posts yet.\nUse the camera tab to add one.',
+                    _username.isEmpty
+                        ? 'Please login again.'
+                        : 'No posts yet.\nUse the camera tab to add one.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: AppColors.textSecondary),
                   ),
@@ -294,26 +305,6 @@ class _PillButton extends StatelessWidget {
         text,
         style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
       ),
-    );
-  }
-}
-
-class _IconPillButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onPressed;
-  const _IconPillButton({required this.icon, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.bgElevated,
-        side: const BorderSide(color: AppColors.divider),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-      ),
-      child: Icon(icon, color: AppColors.textPrimary, size: 18),
     );
   }
 }

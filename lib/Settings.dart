@@ -25,18 +25,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> loadData() async {
-    userData = await SharedPreferenceHelper.getMap("userlist");
+    final username = await SharedPreferenceHelper.currentUsername();
+    if (username == null) return;
+
+    final userDataMap = await SharedPreferenceHelper.getMap("userlist");
 
     setState(() {
-      userData.forEach((key, value) {
-        if (value[1] == true) {
-          currentUser = key;
-        }
-      });
-
-      if (currentUser.isEmpty && userData.isNotEmpty) {
-        currentUser = userData.keys.first;
-      }
+      currentUser = username;
+      userData = userDataMap;
     });
   }
 
@@ -89,10 +85,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _logout() async {
-    if (currentUser.isEmpty) return;
-
-    userData[currentUser][1] = false;
-    await SharedPreferenceHelper.saveMap("userlist", userData);
+    await SharedPreferenceHelper.clearSession();
 
     if (!mounted) return;
 
@@ -108,20 +101,12 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Delete Account?"),
-        content: const Text(
-          "This action cannot be undone.",
-        ),
+        content: const Text("This action cannot be undone."),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              "Delete",
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text("Delete", style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -130,8 +115,10 @@ class _SettingsPageState extends State<SettingsPage> {
     if (confirm != true) return;
 
     userData.remove(currentUser);
-
     await SharedPreferenceHelper.saveMap("userlist", userData);
+
+    // 🧹 Clear session
+    await SharedPreferenceHelper.clearSession();
 
     if (!mounted) return;
 

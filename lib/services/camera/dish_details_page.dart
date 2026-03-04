@@ -1,8 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
-import '../db/app_database.dart';
-import '../db/dish_entry.dart';
+import 'package:food_dairy/services/db/app_database.dart';
+import 'package:food_dairy/services/db/dish_entry.dart';
+import 'package:food_dairy/services/shared_preference_helper.dart'; // ✅ add this import
 
 class DishDetailsPage extends StatefulWidget {
   final String imagePath;
@@ -44,7 +45,15 @@ class _DishDetailsPageState extends State<DishDetailsPage> {
     setState(() => _saving = true);
 
     try {
+      // ✅ get current logged-in user
+      final username = await SharedPreferenceHelper.currentUsername();
+      if (username == null || username.trim().isEmpty) {
+        _showError('No logged-in user found. Please login again.');
+        return;
+      }
+
       final entry = DishEntry(
+        username: username.trim(), // ✅ REQUIRED
         imagePath: widget.imagePath,
         name: name,
         description: desc,
@@ -56,7 +65,7 @@ class _DishDetailsPageState extends State<DishDetailsPage> {
       await AppDatabase.instance.insertDish(entry);
 
       if (!mounted) return;
-      Navigator.pop(context); // back to camera
+      Navigator.pop(context, true); // return "saved"
     } catch (e) {
       _showError('Failed to save to database');
     } finally {

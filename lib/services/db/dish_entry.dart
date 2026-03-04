@@ -1,5 +1,6 @@
 class DishEntry {
   final int? id;
+  final String username; // ✅ NEW
   final String imagePath;
   final String name;
   final String description;
@@ -9,6 +10,7 @@ class DishEntry {
 
   DishEntry({
     this.id,
+    required this.username,
     required this.imagePath,
     required this.name,
     required this.description,
@@ -19,6 +21,7 @@ class DishEntry {
 
   Map<String, Object?> toMap() => {
     'id': id,
+    'username': username,
     'image_path': imagePath,
     'name': name,
     'description': description,
@@ -29,6 +32,7 @@ class DishEntry {
 
   static DishEntry fromMap(Map<String, Object?> map) => DishEntry(
     id: map['id'] as int?,
+    username: (map['username'] ?? '').toString(),
     imagePath: map['image_path'] as String,
     name: map['name'] as String,
     description: map['description'] as String,
