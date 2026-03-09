@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:food_dairy/services/db/dish_entry.dart';
-import 'package:food_dairy/profile/edit_post_page.dart'; // ✅ add this
+import 'package:food_dairy/profile/edit_post_page.dart';
 
 class AppColors {
   static const bgPrimary = Color(0xFF000000);
@@ -94,6 +95,7 @@ class _PostDetailPageState extends State<PostDetailPage> {
   @override
   Widget build(BuildContext context) {
     final e = widget.entry;
+    final isUrlImage = e.imagePath.startsWith('http');
 
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
@@ -114,7 +116,15 @@ class _PostDetailPageState extends State<PostDetailPage> {
           children: [
             AspectRatio(
               aspectRatio: 1,
-              child: Image.file(
+              child: isUrlImage
+                  ? CachedNetworkImage(
+                imageUrl: e.imagePath,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const Center(
+                  child: Icon(Icons.broken_image, color: AppColors.textSecondary),
+                ),
+              )
+                  : Image.file(
                 File(e.imagePath),
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const Center(
@@ -157,7 +167,6 @@ class _PostDetailPageState extends State<PostDetailPage> {
                     style: const TextStyle(color: AppColors.textPrimary, height: 1.3),
                   ),
                   const SizedBox(height: 24),
-
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(

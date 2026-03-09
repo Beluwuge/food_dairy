@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -63,12 +64,18 @@ class _EditPostPageState extends State<EditPostPage> {
   Future<void> _evictImageFromFlutterCache(String? path) async {
     if (path == null || path.isEmpty) return;
 
-    try {
-      final file = File(path);
-      if (await file.exists()) {
-        await FileImage(file).evict();
-      }
-    } catch (_) {}
+    if (path.startsWith('http')) {
+      try {
+        await DefaultCacheManager().removeFile(path);
+      } catch (_) {}
+    } else {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await FileImage(file).evict();
+        }
+      } catch (_) {}
+    }
 
     try {
       PaintingBinding.instance.imageCache.clear();
@@ -122,7 +129,7 @@ class _EditPostPageState extends State<EditPostPage> {
   }
 
   Future<void> _deleteFileIfExists(String? path) async {
-    if (path == null || path.isEmpty) return;
+    if (path == null || path.isEmpty || path.startsWith('http')) return;
     try {
       final file = File(path);
       if (await file.exists()) {
@@ -148,10 +155,15 @@ class _EditPostPageState extends State<EditPostPage> {
         return;
       }
 
-      final dir = p.dirname(_originalPath);
-      final base = p.basename(_originalPath);
+      final basePath = _originalPath.startsWith('http')
+          ? (await getTemporaryDirectory()).path
+          : p.dirname(_originalPath);
+      final base = _originalPath.startsWith('http')
+          ? 'liked_recipe.jpg'
+          : p.basename(_originalPath);
+
       final replacementPath = p.join(
-        dir,
+        basePath,
         'replacement_${DateTime.now().millisecondsSinceEpoch}_$base',
       );
 
@@ -195,19 +207,25 @@ class _EditPostPageState extends State<EditPostPage> {
     setState(() => _busy = true);
 
     try {
+      String finalImagePath = _originalPath;
+
       if (_replacementPath != null) {
         await _evictImageFromFlutterCache(_originalPath);
         await _evictImageFromFlutterCache(_replacementPath);
 
-        // Delete original first
-        await _deleteFileIfExists(_originalPath);
+        if (_originalPath.startsWith('http')) {
+          finalImagePath = _replacementPath!;
+        } else {
+          await _deleteFileIfExists(_originalPath);
 
-        // Move replacement into original path
-        try {
-          await File(_replacementPath!).rename(_originalPath);
-        } catch (_) {
-          await File(_replacementPath!).copy(_originalPath);
-          await _deleteFileIfExists(_replacementPath);
+          try {
+            await File(_replacementPath!).rename(_originalPath);
+          } catch (_) {
+            await File(_replacementPath!).copy(_originalPath);
+            await _deleteFileIfExists(_replacementPath);
+          }
+
+          finalImagePath = _originalPath;
         }
 
         _replacementPath = null;
@@ -216,7 +234,7 @@ class _EditPostPageState extends State<EditPostPage> {
       final updated = DishEntry(
         id: widget.entry.id,
         username: widget.entry.username,
-        imagePath: _originalPath,
+        imagePath: finalImagePath,
         name: name,
         description: desc,
         calories: calories,
@@ -226,7 +244,7 @@ class _EditPostPageState extends State<EditPostPage> {
 
       await AppDatabase.instance.updateDish(updated);
       await _clearAllImageCaches();
-      await _evictImageFromFlutterCache(_originalPath);
+      await _evictImageFromFlutterCache(finalImagePath);
 
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -277,6 +295,7 @@ class _EditPostPageState extends State<EditPostPage> {
   @override
   Widget build(BuildContext context) {
     final previewPath = _replacementPath ?? _originalPath;
+    final isUrlImage = previewPath.startsWith('http');
 
     return WillPopScope(
       onWillPop: () async {
@@ -316,7 +335,19 @@ class _EditPostPageState extends State<EditPostPage> {
                   aspectRatio: 1,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
+                    child: isUrlImage
+                        ? CachedNetworkImage(
+                      imageUrl: previewPath,
+                      key: ValueKey(previewPath),
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => const Center(
+                        child: Icon(
+                          Icons.broken_image,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    )
+                        : Image.file(
                       File(previewPath),
                       key: ValueKey(previewPath),
                       fit: BoxFit.cover,

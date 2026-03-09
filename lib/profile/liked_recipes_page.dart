@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/db/app_database.dart';
 import '../services/db/mealdb_api.dart';
 import '../services/shared_preference_helper.dart';
+import '../services/db/dish_entry.dart';
 
 class LikedRecipesPage extends StatefulWidget {
   const LikedRecipesPage({super.key});
@@ -99,6 +100,33 @@ class _LikedRecipesPageState extends State<LikedRecipesPage> {
     );
   }
 
+  Future<void> _addToPosts(Map<String, dynamic> meal) async {
+    final username =
+        await SharedPreferenceHelper.currentUsername() ?? 'legacy';
+
+    final name = (meal['strMeal'] ?? 'Recipe').toString();
+    final cuisine = (meal['strArea'] ?? '').toString();
+    final imageUrl = (meal['strMealThumb'] ?? '').toString();
+
+    final entry = DishEntry(
+      username: username,
+      imagePath: imageUrl, // FIX: store API image URL here
+      name: name,
+      description: 'Imported from liked recipe',
+      calories: 0,
+      cuisine: cuisine,
+      createdAt: DateTime.now().toIso8601String(),
+    );
+
+    await AppDatabase.instance.insertDish(entry);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Added to your posts')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -176,6 +204,26 @@ class _LikedRecipesPageState extends State<LikedRecipesPage> {
                       Icons.favorite,
                       size: 18,
                       color: Colors.redAccent,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 6,
+                  right: 6,
+                  child: GestureDetector(
+                    onTap: () => _addToPosts(meal),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.45),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Icon(
+                        Icons.add,
+                        size: 18,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),

@@ -1,3 +1,39 @@
+/*
+FOR YOU PAGE — HOW IT WORKS (TL;DR)
+
+The For You page is a personalized recipe feed that shows one recipe at a time
+in a vertically scrollable view (similar to Instagram Reels).
+
+Data Sources:
+- Recipes come from MealDB and are cached by recipe_feed_repository.dart
+- User likes are stored in SQLite (liked_recipes table)
+- Current user is retrieved from SharedPreferences
+
+Recommendation Algorithm:
+1. Get the current logged-in username.
+2. Load the user's liked recipes from the database.
+3. Count which cuisine the user likes the most.
+4. Score each available recipe based on similarity.
+
+Scoring Example:
++5 points → recipe cuisine matches user's top liked cuisine
++3 points → recipe cuisine matches any liked cuisine
++0 points → no match
+
+Recipes are then sorted by score (highest first).
+
+Feed Behavior:
+- Recipes are displayed using PageView (vertical swipe).
+- When a user likes a recipe, it is saved to the database.
+- The feed does NOT refresh immediately.
+- After the user scrolls 3 more posts, the recommendation algorithm runs again
+  and updates the feed.
+
+This approach keeps the feed stable while still adapting to the user's
+preferences over time.
+*/
+
+
 import '../services/db/app_database.dart';
 import '../services/db/recipe_feed_repository.dart';
 import '../services/shared_preference_helper.dart';

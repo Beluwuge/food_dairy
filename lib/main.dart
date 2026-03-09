@@ -306,7 +306,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
 
                         _Dimens.gap24,
-                a
                         TextButton(
                           onPressed: _goToRegister,
                           child: const Text.rich(

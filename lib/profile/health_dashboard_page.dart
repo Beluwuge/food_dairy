@@ -15,8 +15,9 @@ class AppColors {
 }
 
 class StorageKeys {
-  static const profile = 'profile';     // includes weight/height/age
-  static const waterLog = 'water_log';  // {"YYYY-MM-DD": intMl}
+  static const profile = 'profile';      // includes weightKg/heightCm/age
+  static const waterLog = 'water_log';   // {"YYYY-MM-DD": intMl}
+  static const likedIntake = 'liked_intake_log'; // {"YYYY-MM-DD": [{...}]}
 }
 
 class HealthDashboardPage extends StatefulWidget {
@@ -55,6 +56,7 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
 
   // Intake
   List<DishEntry> _allPosts = [];
+  List<_LikedRecipeOption> _likedRecipeOptions = [];
   List<_IntakeItem> _todayIntake = [];
   int _consumedCalories = 0;
 
@@ -89,6 +91,11 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
         username,
       );
 
+      final likedIntakeLog = await SharedPreferenceHelper.getUserMap(
+        StorageKeys.likedIntake,
+        username,
+      );
+
       final posts = await AppDatabase.instance.getDishesByUser(username);
 
       final intakeRows =
@@ -97,14 +104,59 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
         dateKey: _todayKey,
       );
 
-      _allPosts = posts;
+      final likedRows = await AppDatabase.instance.getLikedRecipes(
+        username: username,
+      );
 
-      _todayIntake = intakeRows.map((r) {
+      _allPosts = posts;
+      _likedRecipeOptions = _mapLikedRecipeOptions(likedRows);
+
+      final dbIntake = intakeRows.map((r) {
         final dish = DishEntry.fromMap(r);
         final qty = (r['quantity'] as num).toInt();
         final intakeId = (r['intake_id'] as num).toInt();
-        return _IntakeItem(intakeId: intakeId, entry: dish, quantity: qty);
+        return _IntakeItem.db(
+          intakeId: intakeId,
+          entry: dish,
+          quantity: qty,
+        );
       }).toList();
+
+      final likedIntake = _mapLikedIntakeFromStorage(
+        likedIntakeLog[_todayKey],
+        username: username,
+      );
+
+      _todayIntake = [
+        ...dbIntake,
+        ...likedIntake,
+      ];
+
+      // FIX: match keys saved by EditProfilePage
+      _name = (profile['name'] ?? 'User').toString();
+
+      final ageRaw = profile['age'];
+      _age = ageRaw == null ? null : int.tryParse(ageRaw.toString());
+
+      final weightRaw = profile['weightKg'];
+      _weightKg =
+      weightRaw == null ? null : double.tryParse(weightRaw.toString());
+
+      final heightRaw = profile['heightCm'];
+      _heightCm =
+      heightRaw == null ? null : double.tryParse(heightRaw.toString());
+
+      final activityRaw = (profile['activity'] ?? 'light').toString();
+      if (_activityFactor.containsKey(activityRaw)) {
+        _activity = activityRaw;
+      }
+
+      final todayWater = water[_todayKey];
+      _todayWaterMl =
+      todayWater == null ? 0 : int.tryParse(todayWater.toString()) ?? 0;
+
+      print("PROFILE DATA: $profile");
+      print("Weight: $_weightKg Height: $_heightCm");
 
       _recompute();
     } finally {
@@ -112,23 +164,112 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
     }
   }
 
+  List<_LikedRecipeOption> _mapLikedRecipeOptions(dynamic likedRows) {
+    final result = <_LikedRecipeOption>[];
+
+    if (likedRows is! Iterable) return result;
+
+    for (final row in likedRows) {
+      if (row is! Map) continue;
+
+      final recipeId = (row['recipe_id'] ?? '').toString().trim();
+      final name = (row['recipe_name'] ?? row['name'] ?? '').toString().trim();
+      final cuisine = (row['cuisine'] ?? '').toString().trim();
+
+      final caloriesRaw = row['calories'];
+      final calories = caloriesRaw == null
+          ? 0
+          : int.tryParse(caloriesRaw.toString()) ?? 0;
+
+      if (recipeId.isEmpty || name.isEmpty) continue;
+
+      result.add(
+        _LikedRecipeOption(
+          recipeId: recipeId,
+          name: name,
+          cuisine: cuisine,
+          calories: calories,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  List<_IntakeItem> _mapLikedIntakeFromStorage(
+      dynamic raw, {
+        required String username,
+      }) {
+    final result = <_IntakeItem>[];
+
+    if (raw is! List) return result;
+
+    for (final item in raw) {
+      if (item is! Map) continue;
+
+      final logId = (item['logId'] ?? '').toString().trim();
+      final recipeId = (item['recipeId'] ?? '').toString().trim();
+      final name = (item['name'] ?? '').toString().trim();
+      final cuisine = (item['cuisine'] ?? '').toString().trim();
+
+      final qtyRaw = item['quantity'];
+      final calRaw = item['calories'];
+
+      final quantity =
+      qtyRaw == null ? 1 : int.tryParse(qtyRaw.toString()) ?? 1;
+      final calories =
+      calRaw == null ? 0 : int.tryParse(calRaw.toString()) ?? 0;
+
+      if (logId.isEmpty || name.isEmpty) continue;
+
+      final entry = DishEntry(
+        id: null,
+        username: username,
+        imagePath: '',
+        name: name,
+        description: 'Liked recipe',
+        calories: calories,
+        cuisine: cuisine.isEmpty ? 'Liked recipe' : cuisine,
+        createdAt: '',
+      );
+
+      result.add(
+        _IntakeItem.liked(
+          logId: logId,
+          recipeId: recipeId,
+          entry: entry,
+          quantity: quantity,
+        ),
+      );
+    }
+
+    return result;
+  }
+
   void _recompute() {
     // BMI
-    if (_weightKg != null && _heightCm != null && _weightKg! > 0 && _heightCm! > 0) {
+    if (_weightKg != null &&
+        _heightCm != null &&
+        _weightKg! > 0 &&
+        _heightCm! > 0) {
       final hM = _heightCm! / 100.0;
       _bmi = _weightKg! / (hM * hM);
       final v = _bmi!;
-      if (v < 18.5) _bmiLabel = 'Underweight';
-      else if (v < 25) _bmiLabel = 'Normal';
-      else if (v < 30) _bmiLabel = 'Overweight';
-      else _bmiLabel = 'Obese';
+      if (v < 18.5) {
+        _bmiLabel = 'Underweight';
+      } else if (v < 25) {
+        _bmiLabel = 'Normal';
+      } else if (v < 30) {
+        _bmiLabel = 'Overweight';
+      } else {
+        _bmiLabel = 'Obese';
+      }
     } else {
       _bmi = null;
       _bmiLabel = '-';
     }
 
-    // Maintenance calories (front-end only)
-    // Simple base estimate: 24*weight then multiply by activity factor.
+    // Maintenance calories
     if (_weightKg != null && _weightKg! > 0) {
       final factor = _activityFactor[_activity] ?? 1.375;
       _maintenanceCalories = (24.0 * _weightKg! * factor).round();
@@ -202,13 +343,89 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
     await _saveWater();
   }
 
+  Future<void> _saveLikedIntakeLogItem({
+    required String username,
+    required _LikedRecipeOption recipe,
+    required int quantity,
+  }) async {
+    final log = await SharedPreferenceHelper.getUserMap(
+      StorageKeys.likedIntake,
+      username,
+    );
+
+    final current = (log[_todayKey] is List)
+        ? List<Map<String, dynamic>>.from(
+      (log[_todayKey] as List).map(
+            (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    )
+        : <Map<String, dynamic>>[];
+
+    current.add({
+      'logId': DateTime.now().microsecondsSinceEpoch.toString(),
+      'recipeId': recipe.recipeId,
+      'name': recipe.name,
+      'cuisine': recipe.cuisine,
+      'calories': recipe.calories,
+      'quantity': quantity,
+    });
+
+    log[_todayKey] = current;
+
+    await SharedPreferenceHelper.saveUserMap(
+      StorageKeys.likedIntake,
+      username,
+      log,
+    );
+  }
+
+  Future<void> _removeLikedIntakeLogItem({
+    required String username,
+    required String logId,
+  }) async {
+    final log = await SharedPreferenceHelper.getUserMap(
+      StorageKeys.likedIntake,
+      username,
+    );
+
+    final current = (log[_todayKey] is List)
+        ? List<Map<String, dynamic>>.from(
+      (log[_todayKey] as List).map(
+            (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    )
+        : <Map<String, dynamic>>[];
+
+    current.removeWhere((e) => (e['logId'] ?? '').toString() == logId);
+
+    log[_todayKey] = current;
+
+    await SharedPreferenceHelper.saveUserMap(
+      StorageKeys.likedIntake,
+      username,
+      log,
+    );
+  }
+
+  List<_FoodOption> _buildFoodOptions() {
+    final options = <_FoodOption>[
+      ..._allPosts.map((e) => _FoodOption.post(e)),
+      ..._likedRecipeOptions.map((e) => _FoodOption.liked(e)),
+    ];
+
+    options.sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    return options;
+  }
+
   Future<void> _addConsumedDialog() async {
-    if (_allPosts.isEmpty) {
-      _err('No posts found. Add a dish with the camera first.');
+    final options = _buildFoodOptions();
+
+    if (options.isEmpty) {
+      _err('No posts or liked recipes found.');
       return;
     }
 
-    DishEntry selected = _allPosts.first;
+    _FoodOption selected = options.first;
     int qty = 1;
 
     await showModalBottomSheet<void>(
@@ -229,18 +446,31 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('Add food to today',
-                      style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 16)),
+                  const Text(
+                    'Add food to today',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
                   const SizedBox(height: 12),
 
-                  DropdownButtonFormField<DishEntry>(
+                  DropdownButtonFormField<_FoodOption>(
                     value: selected,
                     dropdownColor: AppColors.bgElevated,
-                    items: _allPosts
-                        .map((e) => DropdownMenuItem(
-                      value: e,
-                      child: Text(e.name, style: const TextStyle(color: AppColors.textPrimary)),
-                    ))
+                    items: options
+                        .map(
+                          (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(
+                          e.label,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    )
                         .toList(),
                     onChanged: (v) => setLocal(() => selected = v!),
                     decoration: _fieldDeco('Select dish'),
@@ -251,10 +481,17 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                     value: qty,
                     dropdownColor: AppColors.bgElevated,
                     items: const [1, 2, 3, 4]
-                        .map((e) => DropdownMenuItem(
-                      value: e,
-                      child: Text('x$e', style: const TextStyle(color: AppColors.textPrimary)),
-                    ))
+                        .map(
+                          (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(
+                          'x$e',
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    )
                         .toList(),
                     onChanged: (v) => setLocal(() => qty = v ?? 1),
                     decoration: _fieldDeco('Quantity'),
@@ -262,14 +499,41 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                   const SizedBox(height: 16),
 
                   ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentPrimary),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.accentPrimary,
+                    ),
                     onPressed: () async {
-                      await AppDatabase.instance.addIntake(dishId: selected.id!, dateKey: _todayKey, quantity: qty);
+                      final username =
+                      await SharedPreferenceHelper.currentUsername();
+                      if (username == null) return;
+
+                      if (selected.kind == _FoodOptionKind.post) {
+                        final dish = selected.post!;
+                        await AppDatabase.instance.addIntake(
+                          dishId: dish.id!,
+                          dateKey: _todayKey,
+                          quantity: qty,
+                        );
+                      } else {
+                        final likedRecipe = selected.liked!;
+                        await _saveLikedIntakeLogItem(
+                          username: username,
+                          recipe: likedRecipe,
+                          quantity: qty,
+                        );
+                      }
+
                       if (!context.mounted) return;
                       Navigator.pop(context);
                       await _loadAll();
                     },
-                    child: const Text('Add', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+                    child: const Text(
+                      'Add',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ],
               );
@@ -280,14 +544,37 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
     );
   }
 
+  Future<void> _removeConsumedItem(_IntakeItem item) async {
+    final username = await SharedPreferenceHelper.currentUsername();
+    if (username == null) return;
+
+    if (item.isLikedRecipe) {
+      if (item.logId == null) return;
+      await _removeLikedIntakeLogItem(
+        username: username,
+        logId: item.logId!,
+      );
+    } else {
+      await AppDatabase.instance.removeIntake(item.intakeId!);
+    }
+
+    await _loadAll();
+  }
+
   InputDecoration _fieldDeco(String label) {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(color: AppColors.textSecondary),
       filled: true,
       fillColor: AppColors.bgSecondary,
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.divider)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.accentPrimary)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.divider),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppColors.accentPrimary),
+      ),
     );
   }
 
@@ -297,7 +584,12 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
       builder: (_) => AlertDialog(
         title: const Text('Error'),
         content: Text(msg),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -307,7 +599,13 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
     if (_loading) {
       return const Scaffold(
         backgroundColor: AppColors.bgPrimary,
-        body: Center(child: SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+        body: Center(
+          child: SizedBox(
+            height: 22,
+            width: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
       );
     }
 
@@ -331,9 +629,19 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
               title: 'BMI',
               child: Row(
                 children: [
-                  Expanded(child: _Metric(label: 'BMI', value: _bmi == null ? '-' : _bmi!.toStringAsFixed(1))),
+                  Expanded(
+                    child: _Metric(
+                      label: 'BMI',
+                      value: _bmi == null ? '-' : _bmi!.toStringAsFixed(1),
+                    ),
+                  ),
                   const SizedBox(width: 12),
-                  Expanded(child: _Metric(label: 'Category', value: _bmiLabel)),
+                  Expanded(
+                    child: _Metric(
+                      label: 'Category',
+                      value: _bmiLabel,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -345,16 +653,29 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: _Metric(label: 'Maintenance', value: maint?.toString() ?? '-')),
+                      Expanded(
+                        child: _Metric(
+                          label: 'Maintenance',
+                          value: maint?.toString() ?? '-',
+                        ),
+                      ),
                       const SizedBox(width: 12),
-                      Expanded(child: _Metric(label: 'Consumed today', value: _consumedCalories.toString())),
+                      Expanded(
+                        child: _Metric(
+                          label: 'Consumed today',
+                          value: _consumedCalories.toString(),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: _Metric(label: 'Remaining', value: remaining?.toString() ?? '-'),
+                        child: _Metric(
+                          label: 'Remaining',
+                          value: remaining?.toString() ?? '-',
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -366,23 +687,39 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                             items: const [
                               DropdownMenuItem<String>(
                                 value: 'sedentary',
-                                child: Text('Sedentary',
-                                    style: TextStyle(color: AppColors.textPrimary)),
+                                child: Text(
+                                  'Sedentary',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
                               ),
                               DropdownMenuItem<String>(
                                 value: 'light',
-                                child: Text('Light',
-                                    style: TextStyle(color: AppColors.textPrimary)),
+                                child: Text(
+                                  'Light',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
                               ),
                               DropdownMenuItem<String>(
                                 value: 'moderate',
-                                child: Text('Moderate',
-                                    style: TextStyle(color: AppColors.textPrimary)),
+                                child: Text(
+                                  'Moderate',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
                               ),
                               DropdownMenuItem<String>(
                                 value: 'active',
-                                child: Text('Active',
-                                    style: TextStyle(color: AppColors.textPrimary)),
+                                child: Text(
+                                  'Active',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
                               ),
                             ],
                             onChanged: (v) async {
@@ -398,18 +735,23 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentPrimary),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accentPrimary,
+                      ),
                       onPressed: _addConsumedDialog,
-                      child: const Text('Add food consumed', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+                      child: const Text(
+                        'Add food consumed',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   _IntakeList(
                     items: _todayIntake,
-                    onRemove: (intakeId) async {
-                      await AppDatabase.instance.removeIntake(intakeId);
-                      await _loadAll();
-                    },
+                    onRemove: _removeConsumedItem,
                   ),
                 ],
               ),
@@ -426,15 +768,27 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                       minHeight: 10,
                       value: _waterProgress(),
                       backgroundColor: AppColors.divider,
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accentPrimary),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppColors.accentPrimary,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Expanded(child: _Metric(label: 'Today (ml)', value: '$_todayWaterMl')),
+                      Expanded(
+                        child: _Metric(
+                          label: 'Today (ml)',
+                          value: '$_todayWaterMl',
+                        ),
+                      ),
                       const SizedBox(width: 12),
-                      Expanded(child: _Metric(label: 'Recommended', value: '$recWater')),
+                      Expanded(
+                        child: _Metric(
+                          label: 'Recommended',
+                          value: '$recWater',
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -447,21 +801,37 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                             dropdownColor: AppColors.bgElevated,
                             isExpanded: true,
                             items: const [150, 250, 350, 500]
-                                .map((v) => DropdownMenuItem(
-                              value: v,
-                              child: Text('$v ml', style: const TextStyle(color: AppColors.textPrimary)),
-                            ))
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                value: v,
+                                child: Text(
+                                  '$v ml',
+                                  style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            )
                                 .toList(),
-                            onChanged: (v) => setState(() => _quickAddMl = v ?? 250),
+                            onChanged: (v) =>
+                                setState(() => _quickAddMl = v ?? 250),
                           ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentPrimary),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.accentPrimary,
+                          ),
                           onPressed: () => _addWater(_quickAddMl),
-                          child: const Text('Add', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+                          child: const Text(
+                            'Add',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -473,7 +843,13 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                       side: const BorderSide(color: AppColors.divider),
                     ),
                     onPressed: _resetWater,
-                    child: const Text('Reset today', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'Reset today',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -485,7 +861,10 @@ class _HealthDashboardPageState extends State<HealthDashboardPage> {
                   '${_age == null ? '' : ' • $_age'}'
                   '${_weightKg == null ? '' : ' • ${_weightKg!.toStringAsFixed(1)}kg'}'
                   '${_heightCm == null ? '' : ' • ${_heightCm!.toStringAsFixed(0)}cm'}',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
@@ -511,7 +890,13 @@ class _Card extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w900)),
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           const SizedBox(height: 10),
           child,
         ],
@@ -537,9 +922,23 @@ class _Metric extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(value, style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w900)),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ],
       ),
     );
@@ -547,27 +946,53 @@ class _Metric extends StatelessWidget {
 }
 
 class _IntakeItem {
-  final int intakeId;
+  final int? intakeId;
+  final String? logId;
+  final String? recipeId;
   final DishEntry entry;
   final int quantity;
-  _IntakeItem({required this.intakeId, required this.entry, required this.quantity});
+  final bool isLikedRecipe;
+
+  _IntakeItem.db({
+    required int intakeId,
+    required this.entry,
+    required this.quantity,
+  })  : intakeId = intakeId,
+        logId = null,
+        recipeId = null,
+        isLikedRecipe = false;
+
+  _IntakeItem.liked({
+    required String logId,
+    required String recipeId,
+    required this.entry,
+    required this.quantity,
+  })  : intakeId = null,
+        logId = logId,
+        recipeId = recipeId,
+        isLikedRecipe = true;
 }
 
 class _IntakeList extends StatelessWidget {
   final List<_IntakeItem> items;
-  final Future<void> Function(int intakeId) onRemove;
+  final Future<void> Function(_IntakeItem item) onRemove;
 
   const _IntakeList({required this.items, required this.onRemove});
 
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return const Text('No food added today.', style: TextStyle(color: AppColors.textSecondary));
+      return const Text(
+        'No food added today.',
+        style: TextStyle(color: AppColors.textSecondary),
+      );
     }
 
     return Column(
       children: items.map((it) {
         final total = it.entry.calories * it.quantity;
+        final suffix = it.isLikedRecipe ? ' ❤️' : '';
+
         return Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
@@ -582,17 +1007,30 @@ class _IntakeList extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(it.entry.name,
-                        style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+                    Text(
+                      '${it.entry.name}$suffix',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text('x${it.quantity} • $total kcal',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    Text(
+                      'x${it.quantity} • $total kcal',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
                   ],
                 ),
               ),
               IconButton(
-                onPressed: () => onRemove(it.intakeId),
-                icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                onPressed: () => onRemove(it),
+                icon: const Icon(
+                  Icons.close,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ],
           ),
@@ -600,4 +1038,53 @@ class _IntakeList extends StatelessWidget {
       }).toList(),
     );
   }
+}
+
+enum _FoodOptionKind { post, liked }
+
+class _FoodOption {
+  final _FoodOptionKind kind;
+  final DishEntry? post;
+  final _LikedRecipeOption? liked;
+
+  const _FoodOption._({
+    required this.kind,
+    this.post,
+    this.liked,
+  });
+
+  factory _FoodOption.post(DishEntry post) {
+    return _FoodOption._(
+      kind: _FoodOptionKind.post,
+      post: post,
+    );
+  }
+
+  factory _FoodOption.liked(_LikedRecipeOption liked) {
+    return _FoodOption._(
+      kind: _FoodOptionKind.liked,
+      liked: liked,
+    );
+  }
+
+  String get label {
+    if (kind == _FoodOptionKind.post) {
+      return post!.name;
+    }
+    return '${liked!.name} ❤️';
+  }
+}
+
+class _LikedRecipeOption {
+  final String recipeId;
+  final String name;
+  final String cuisine;
+  final int calories;
+
+  const _LikedRecipeOption({
+    required this.recipeId,
+    required this.name,
+    required this.cuisine,
+    required this.calories,
+  });
 }

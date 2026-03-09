@@ -11,8 +11,7 @@ class AppColors {
 }
 
 class StorageKeys {
-  static const profile = 'profile'; // base key -> we store profile_<username>
-  static const session = 'session'; // {"isLoggedIn": true, "username": "..."}
+  static const profile = 'profile'; // base key
 }
 
 class EditProfilePage extends StatefulWidget {
@@ -29,12 +28,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final _heightCtrl = TextEditingController();
 
   bool _loading = true;
-  String? _username; // ✅ current logged-in username
-
-  String get _profileKey {
-    final u = _username ?? '';
-    return '${StorageKeys.profile}_$u'; // profile_<username>
-  }
+  String? _username;
 
   @override
   void initState() {
@@ -53,69 +47,95 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   Future<void> _load() async {
     try {
-      // ✅ read session username
-      final session = await SharedPreferenceHelper.getMap(StorageKeys.session);
-      final username = (session['username'] ?? '').toString().trim();
+      final username = await SharedPreferenceHelper.currentUsername();
 
-      if (username.isEmpty) {
-        _err('No logged-in user found. Please login again.');
+      if (username == null || username.trim().isEmpty) {
+        if (mounted) {
+          _err('No logged-in user found. Please login again.');
+        }
         return;
       }
 
-      _username = username;
+      _username = username.trim();
 
-      // ✅ load profile_<username>
-      final p = await SharedPreferenceHelper.getMap(_profileKey);
+      final profile = await SharedPreferenceHelper.getUserMap(
+        StorageKeys.profile,
+        _username!,
+      );
 
-      _nameCtrl.text = (p['name'] ?? '').toString();
-      _ageCtrl.text = (p['age'] ?? '').toString();
-      _weightCtrl.text = (p['weightKg'] ?? '').toString();
-      _heightCtrl.text = (p['heightCm'] ?? '').toString();
+      _nameCtrl.text = (profile['name'] ?? '').toString();
+      _ageCtrl.text = (profile['age'] ?? '').toString();
+      _weightCtrl.text = (profile['weightKg'] ?? '').toString();
+      _heightCtrl.text = (profile['heightCm'] ?? '').toString();
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     final age = int.tryParse(_ageCtrl.text.trim());
-    final w = double.tryParse(_weightCtrl.text.trim());
-    final h = double.tryParse(_heightCtrl.text.trim());
+    final weightKg = double.tryParse(_weightCtrl.text.trim());
+    final heightCm = double.tryParse(_heightCtrl.text.trim());
 
     if (_username == null || _username!.trim().isEmpty) {
       _err('No logged-in user found. Please login again.');
       return;
     }
 
-    if (name.isEmpty || age == null || w == null || h == null || age <= 0 || w <= 0 || h <= 0) {
-      _err('Enter valid name, age, weight, height.');
+    if (name.isEmpty ||
+        age == null ||
+        weightKg == null ||
+        heightCm == null ||
+        age <= 0 ||
+        weightKg <= 0 ||
+        heightCm <= 0) {
+      _err('Enter valid name, age, weight, and height.');
       return;
     }
 
-    final existing = await SharedPreferenceHelper.getMap(_profileKey);
+    final existing = await SharedPreferenceHelper.getUserMap(
+      StorageKeys.profile,
+      _username!,
+    );
 
-    await SharedPreferenceHelper.saveMap(_profileKey, {
-      ...existing,
-      'name': name,
-      'age': age,
-      'weightKg': w,
-      'heightCm': h,
-      // keep activity if you use it later
-      // 'activity': existing['activity'] ?? 'light',
-    });
+    await SharedPreferenceHelper.saveUserMap(
+      StorageKeys.profile,
+      _username!,
+      {
+        ...existing,
+        'name': name,
+        'age': age,
+        'weightKg': weightKg,
+        'heightCm': heightCm,
+        'activity': existing['activity'] ?? 'light',
+      },
+    );
 
     if (!mounted) return;
     Navigator.pop(context, true);
   }
 
-  void _err(String m) {
+  void _err(String message) {
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Error'),
-        content: Text(m),
+        backgroundColor: AppColors.bgElevated,
+        title: const Text(
+          'Error',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
         ],
       ),
     );
@@ -135,14 +155,19 @@ class _EditProfilePageState extends State<EditProfilePage> {
             onPressed: _loading ? null : _save,
             child: const Text(
               'Save',
-              style: TextStyle(color: AppColors.accentPrimary, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: AppColors.accentPrimary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : Padding(
+          ? const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
+      )
+          : SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
@@ -151,25 +176,38 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Account: $_username',
-                  style: const TextStyle(color: AppColors.textSecondary),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ),
             if (_username != null) const SizedBox(height: 12),
-
-            _Field(ctrl: _nameCtrl, label: 'Name', keyboardType: TextInputType.name),
+            _Field(
+              ctrl: _nameCtrl,
+              label: 'Name',
+              keyboardType: TextInputType.name,
+            ),
             const SizedBox(height: 12),
-            _Field(ctrl: _ageCtrl, label: 'Age', keyboardType: TextInputType.number),
+            _Field(
+              ctrl: _ageCtrl,
+              label: 'Age',
+              keyboardType: TextInputType.number,
+            ),
             const SizedBox(height: 12),
             _Field(
               ctrl: _weightCtrl,
               label: 'Weight (kg)',
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             _Field(
               ctrl: _heightCtrl,
               label: 'Height (cm)',
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
           ],
         ),
@@ -183,7 +221,11 @@ class _Field extends StatelessWidget {
   final String label;
   final TextInputType keyboardType;
 
-  const _Field({required this.ctrl, required this.label, required this.keyboardType});
+  const _Field({
+    required this.ctrl,
+    required this.label,
+    required this.keyboardType,
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -1,11 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
 import 'package:food_dairy/services/db/app_database.dart';
 import 'package:food_dairy/services/db/dish_entry.dart';
-import 'package:food_dairy/profile/edit_profile_page.dart';
-import 'package:food_dairy/profile/health_dashboard_page.dart';
+
+import 'package:food_dairy/profile/edit_profile_page.dart' as edit;
+import 'package:food_dairy/profile/health_dashboard_page.dart' as health;
 import 'package:food_dairy/profile/post_detail_page.dart';
-import 'package:food_dairy/profile/liked_recipes_page.dart'; // NEW
+import 'package:food_dairy/profile/liked_recipes_page.dart';
+
 import 'package:food_dairy/services/shared_preference_helper.dart';
 import 'package:food_dairy/Settings.dart';
 
@@ -73,9 +77,8 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
 
       _posts = await AppDatabase.instance.getDishesByUser(_username);
 
-      final liked = await AppDatabase.instance.getLikedRecipes(
-        username: _username,
-      );
+      final liked =
+      await AppDatabase.instance.getLikedRecipes(username: _username);
 
       _likedCount = liked.length;
     } finally {
@@ -86,7 +89,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
   Future<void> _openEditProfile() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const EditProfilePage()),
+      MaterialPageRoute(
+        builder: (_) => const edit.EditProfilePage(),
+      ),
     );
 
     await _loadAll();
@@ -95,14 +100,18 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
   void _openHealth() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const HealthDashboardPage()),
+      MaterialPageRoute(
+        builder: (_) => const health.HealthDashboardPage(),
+      ),
     );
   }
 
   void _openLiked() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const LikedRecipesPage()),
+      MaterialPageRoute(
+        builder: (_) => const LikedRecipesPage(),
+      ),
     );
   }
 
@@ -142,7 +151,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
+                MaterialPageRoute(
+                  builder: (_) => const SettingsPage(),
+                ),
               );
             },
           ),
@@ -188,10 +199,14 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                           child: Row(
                             children: [
                               _Stat(
-                                  value: '$postsCount', label: 'posts'),
+                                value: '$postsCount',
+                                label: 'posts',
+                              ),
                               const SizedBox(width: 24),
                               _Stat(
-                                  value: '$_likedCount', label: 'liked'),
+                                value: '$_likedCount',
+                                label: 'liked',
+                              ),
                             ],
                           ),
                         ),
@@ -234,11 +249,15 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
                         const _TabIcon(
-                            active: true, icon: Icons.grid_on),
+                          active: true,
+                          icon: Icons.grid_on,
+                        ),
                         GestureDetector(
                           onTap: _openLiked,
                           child: const _TabIcon(
-                              active: false, icon: Icons.favorite),
+                            active: false,
+                            icon: Icons.favorite,
+                          ),
                         ),
                       ],
                     ),
@@ -246,7 +265,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                     const SizedBox(height: 10),
 
                     const Divider(
-                        color: AppColors.divider, height: 1),
+                      color: AppColors.divider,
+                      height: 1,
+                    ),
                   ],
                 ),
               ),
@@ -261,8 +282,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                         ? 'Please login again.'
                         : 'No posts yet.\nUse the camera tab to add one.',
                     textAlign: TextAlign.center,
-                    style:
-                    const TextStyle(color: AppColors.textSecondary),
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
               )
@@ -279,12 +301,29 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                         child: Container(
                           margin: const EdgeInsets.all(2),
                           color: AppColors.bgElevated,
-                          child: Image.file(
+                          child: post.imagePath.startsWith('http')
+                              ? CachedNetworkImage(
+                            imageUrl: post.imagePath,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) =>
+                            const Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                color:
+                                AppColors.textSecondary,
+                              ),
+                            ),
+                          )
+                              : Image.file(
                             File(post.imagePath),
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Center(
-                              child: Icon(Icons.broken_image,
-                                  color: AppColors.textSecondary),
+                            errorBuilder: (_, __, ___) =>
+                            const Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                color:
+                                AppColors.textSecondary,
+                              ),
                             ),
                           ),
                         ),
@@ -319,11 +358,13 @@ class _Stat extends StatelessWidget {
       children: [
         Text(value,
             style: const TextStyle(
-                color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
         Text(label,
             style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 12)),
+                color: AppColors.textSecondary,
+                fontSize: 12)),
       ],
     );
   }
@@ -342,13 +383,16 @@ class _PillButton extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         backgroundColor: AppColors.bgElevated,
         side: const BorderSide(color: AppColors.divider),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
         padding: const EdgeInsets.symmetric(vertical: 12),
       ),
       child: Text(
         text,
         style: const TextStyle(
-            color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -362,7 +406,10 @@ class _TabIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(icon,
-        color: active ? AppColors.textPrimary : AppColors.textSecondary);
+    return Icon(
+      icon,
+      color:
+      active ? AppColors.textPrimary : AppColors.textSecondary,
+    );
   }
 }
