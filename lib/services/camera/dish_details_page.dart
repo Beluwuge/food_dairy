@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
-import 'package:food_dairy/services/db/app_database.dart';
-import 'package:food_dairy/services/db/dish_entry.dart';
-import 'package:food_dairy/services/shared_preference_helper.dart'; // ✅ add this import
+import '../db/app_database.dart';
+import '../db/dish_entry.dart';
+import '../shared_preference_helper.dart'; // ✅ adjust path if your helper is elsewhere
 
 class DishDetailsPage extends StatefulWidget {
   final String imagePath;
@@ -22,8 +22,27 @@ class _DishDetailsPageState extends State<DishDetailsPage> {
 
   bool _saving = false;
 
+  // ✅ important: track whether this captured image became a saved post
+  bool _saved = false;
+
+  Future<void> _deleteImageIfNotSaved() async {
+    if (_saved) return;
+
+    try {
+      final f = File(widget.imagePath);
+      if (await f.exists()) {
+        await f.delete();
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
   @override
   void dispose() {
+    // ✅ if user leaves without saving, delete the captured file
+    _deleteImageIfNotSaved();
+
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _calCtrl.dispose();
@@ -45,15 +64,16 @@ class _DishDetailsPageState extends State<DishDetailsPage> {
     setState(() => _saving = true);
 
     try {
-      // ✅ get current logged-in user
+      // ✅ required if DishEntry has username now
       final username = await SharedPreferenceHelper.currentUsername();
       if (username == null || username.trim().isEmpty) {
-        _showError('No logged-in user found. Please login again.');
+        _showError('No user session found. Please login again.');
         return;
       }
 
       final entry = DishEntry(
-        username: username.trim(), // ✅ REQUIRED
+        id: null,
+        username: username, // ✅ required
         imagePath: widget.imagePath,
         name: name,
         description: desc,
@@ -64,9 +84,12 @@ class _DishDetailsPageState extends State<DishDetailsPage> {
 
       await AppDatabase.instance.insertDish(entry);
 
+      // ✅ mark as saved so we DO NOT delete image on exit
+      _saved = true;
+
       if (!mounted) return;
-      Navigator.pop(context, true); // return "saved"
-    } catch (e) {
+      Navigator.pop(context, true);
+    } catch (_) {
       _showError('Failed to save to database');
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -88,76 +111,94 @@ class _DishDetailsPageState extends State<DishDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Dish Details')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: AspectRatio(
-                aspectRatio: 4 / 3,
-                child: Image.file(
-                  File(widget.imagePath),
-                  fit: BoxFit.cover,
+    return WillPopScope(
+      // ✅ back button -> delete captured file if not saved
+      onWillPop: () async {
+        await _deleteImageIfNotSaved();
+        return true;
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Dish Details')),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Image.file(
+                    File(widget.imagePath),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Icon(Icons.broken_image),
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            TextField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Dish Name',
-                border: OutlineInputBorder(),
+              // ✅ Dish Name
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Dish Name',
+                  border: OutlineInputBorder(),
+                ),
+                textInputAction: TextInputAction.next,
               ),
-              textInputAction: TextInputAction.next,
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            TextField(
-              controller: _descCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Description',
-                border: OutlineInputBorder(),
+              // ✅ Description
+              TextField(
+                controller: _descCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  border: OutlineInputBorder(),
+                ),
+                textInputAction: TextInputAction.newline,
               ),
-              textInputAction: TextInputAction.newline,
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            TextField(
-              controller: _calCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Calories (kcal)',
-                border: OutlineInputBorder(),
+              // ✅ Calories
+              TextField(
+                controller: _calCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Calories (kcal)',
+                  border: OutlineInputBorder(),
+                ),
+                textInputAction: TextInputAction.next,
               ),
-              textInputAction: TextInputAction.next,
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            TextField(
-              controller: _cuisineCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Cuisine (e.g., Japanese, Malay, Western)',
-                border: OutlineInputBorder(),
+              // ✅ Cuisine
+              TextField(
+                controller: _cuisineCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Cuisine (e.g., Japanese, Malay, Western)',
+                  border: OutlineInputBorder(),
+                ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
               ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _save(),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Save'),
-            ),
-          ],
+              ElevatedButton(
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Text('Save'),
+              ),
+            ],
+          ),
         ),
       ),
     );

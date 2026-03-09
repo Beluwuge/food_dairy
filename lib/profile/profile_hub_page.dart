@@ -5,6 +5,7 @@ import 'package:food_dairy/services/db/dish_entry.dart';
 import 'package:food_dairy/profile/edit_profile_page.dart';
 import 'package:food_dairy/profile/health_dashboard_page.dart';
 import 'package:food_dairy/profile/post_detail_page.dart';
+import 'package:food_dairy/profile/liked_recipes_page.dart'; // NEW
 import 'package:food_dairy/services/shared_preference_helper.dart';
 import 'package:food_dairy/Settings.dart';
 
@@ -19,7 +20,7 @@ class AppColors {
 }
 
 class StorageKeys {
-  static const profile = 'profile'; // stored as profile_<username>
+  static const profile = 'profile';
 }
 
 class ProfileHubPage extends StatefulWidget {
@@ -31,7 +32,9 @@ class ProfileHubPage extends StatefulWidget {
 
 class _ProfileHubPageState extends State<ProfileHubPage> {
   bool _loading = true;
+
   List<DishEntry> _posts = [];
+  int _likedCount = 0;
 
   String _displayName = 'User';
   String _username = '';
@@ -49,25 +52,32 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
 
     try {
       final username = await SharedPreferenceHelper.currentUsername();
+
       if (username == null || username.trim().isEmpty) {
-        // No session user
         _username = '';
         _displayName = 'User';
         _posts = [];
+        _likedCount = 0;
         return;
       }
 
       _username = username.trim();
 
-      // ✅ user-specific profile
-      final profile = await SharedPreferenceHelper.getMap(_profileKeyFor(_username));
+      final profile =
+      await SharedPreferenceHelper.getMap(_profileKeyFor(_username));
 
-      _displayName = (profile['name']?.toString().trim().isNotEmpty == true)
+      _displayName =
+      (profile['name']?.toString().trim().isNotEmpty == true)
           ? profile['name'].toString().trim()
           : _username;
 
-      // ✅ user-specific posts
       _posts = await AppDatabase.instance.getDishesByUser(_username);
+
+      final liked = await AppDatabase.instance.getLikedRecipes(
+        username: _username,
+      );
+
+      _likedCount = liked.length;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -78,6 +88,7 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
       context,
       MaterialPageRoute(builder: (_) => const EditProfilePage()),
     );
+
     await _loadAll();
   }
 
@@ -85,6 +96,13 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const HealthDashboardPage()),
+    );
+  }
+
+  void _openLiked() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LikedRecipesPage()),
     );
   }
 
@@ -114,13 +132,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
         backgroundColor: AppColors.bgPrimary,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
-        title: Row(
-          children: [
-            Text(
-              _username.isNotEmpty ? _username : 'Profile',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
+        title: Text(
+          _username.isNotEmpty ? _username : 'Profile',
+          style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         actions: [
           IconButton(
@@ -159,7 +173,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                           radius: 34,
                           backgroundColor: AppColors.bgElevated,
                           child: Text(
-                            _displayName.isNotEmpty ? _displayName[0].toUpperCase() : 'U',
+                            _displayName.isNotEmpty
+                                ? _displayName[0].toUpperCase()
+                                : 'U',
                             style: const TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 22,
@@ -170,15 +186,20 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                         const SizedBox(width: 18),
                         Expanded(
                           child: Row(
-                            mainAxisAlignment: MainAxisAlignment.start,
                             children: [
-                              _Stat(value: '$postsCount', label: 'posts'),
+                              _Stat(
+                                  value: '$postsCount', label: 'posts'),
+                              const SizedBox(width: 24),
+                              _Stat(
+                                  value: '$_likedCount', label: 'liked'),
                             ],
                           ),
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 12),
+
                     Text(
                       _displayName,
                       style: const TextStyle(
@@ -186,7 +207,9 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+
                     const SizedBox(height: 12),
+
                     Row(
                       children: [
                         Expanded(
@@ -204,15 +227,26 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 14),
+
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: const [
-                        _TabIcon(active: true, icon: Icons.grid_on),
+                      children: [
+                        const _TabIcon(
+                            active: true, icon: Icons.grid_on),
+                        GestureDetector(
+                          onTap: _openLiked,
+                          child: const _TabIcon(
+                              active: false, icon: Icons.favorite),
+                        ),
                       ],
                     ),
+
                     const SizedBox(height: 10),
-                    const Divider(color: AppColors.divider, height: 1),
+
+                    const Divider(
+                        color: AppColors.divider, height: 1),
                   ],
                 ),
               ),
@@ -227,7 +261,8 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                         ? 'Please login again.'
                         : 'No posts yet.\nUse the camera tab to add one.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textSecondary),
+                    style:
+                    const TextStyle(color: AppColors.textSecondary),
                   ),
                 ),
               )
@@ -238,6 +273,7 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                   delegate: SliverChildBuilderDelegate(
                         (context, index) {
                       final post = _posts[index];
+
                       return GestureDetector(
                         onTap: () => _openPost(post),
                         child: Container(
@@ -247,7 +283,8 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                             File(post.imagePath),
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => const Center(
-                              child: Icon(Icons.broken_image, color: AppColors.textSecondary),
+                              child: Icon(Icons.broken_image,
+                                  color: AppColors.textSecondary),
                             ),
                           ),
                         ),
@@ -255,7 +292,8 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
                     },
                     childCount: _posts.length,
                   ),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 3,
                     mainAxisSpacing: 2,
                     crossAxisSpacing: 2,
@@ -272,15 +310,20 @@ class _ProfileHubPageState extends State<ProfileHubPage> {
 class _Stat extends StatelessWidget {
   final String value;
   final String label;
+
   const _Stat({required this.value, required this.label});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
+        Text(value,
+            style: const TextStyle(
+                color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
-        Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+        Text(label,
+            style: const TextStyle(
+                color: AppColors.textSecondary, fontSize: 12)),
       ],
     );
   }
@@ -289,6 +332,7 @@ class _Stat extends StatelessWidget {
 class _PillButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
+
   const _PillButton({required this.text, required this.onPressed});
 
   @override
@@ -303,7 +347,8 @@ class _PillButton extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+        style: const TextStyle(
+            color: AppColors.textPrimary, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -312,10 +357,12 @@ class _PillButton extends StatelessWidget {
 class _TabIcon extends StatelessWidget {
   final bool active;
   final IconData icon;
+
   const _TabIcon({required this.active, required this.icon});
 
   @override
   Widget build(BuildContext context) {
-    return Icon(icon, color: active ? AppColors.textPrimary : AppColors.textSecondary);
+    return Icon(icon,
+        color: active ? AppColors.textPrimary : AppColors.textSecondary);
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:food_dairy/profile/profile_hub_page.dart';
 import 'package:food_dairy/services/camera/camera_page.dart';
 import 'package:food_dairy/recipe_grid_page.dart';
+import 'package:food_dairy/recommendation/recommend_tab.dart';
 
 class AppColors {
   static const bgPrimary = Color(0xFF000000);
@@ -23,9 +24,11 @@ class TabsScreen extends StatefulWidget {
 class _TabsScreenState extends State<TabsScreen> {
   int _index = 0;
 
+  // Recipes | Camera | For You | Profile
   final _pages = const <Widget>[
     RecipeGridPage(),
     CameraPage(),
+    RecommendTab(),
     ProfileHubPage(),
   ];
 
@@ -56,9 +59,9 @@ class _TabsScreenState extends State<TabsScreen> {
           showUnselectedLabels: false,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home),
-              label: 'Home',
+              icon: Icon(Icons.grid_on_outlined),
+              activeIcon: Icon(Icons.grid_on),
+              label: 'Recipes',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.add_box_outlined),
@@ -66,73 +69,14 @@ class _TabsScreenState extends State<TabsScreen> {
               label: 'Add',
             ),
             BottomNavigationBarItem(
+              icon: Icon(Icons.auto_awesome_outlined),
+              activeIcon: Icon(Icons.auto_awesome),
+              label: 'For You',
+            ),
+            BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
               activeIcon: Icon(Icons.person),
               label: 'Profile',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class HomePlaceholderPage extends StatelessWidget {
-  const HomePlaceholderPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const _SimplePage(
-      title: 'Home',
-      subtitle: 'Home feed placeholder',
-      icon: Icons.home,
-    );
-  }
-}
-
-class AddPlaceholderPage extends StatelessWidget {
-  const AddPlaceholderPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const _SimplePage(
-      title: 'Add',
-      subtitle: 'Add entry placeholder',
-      icon: Icons.add_box,
-    );
-  }
-}
-
-class _SimplePage extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-
-  const _SimplePage({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
-      appBar: AppBar(
-        backgroundColor: AppColors.bgPrimary,
-        foregroundColor: AppColors.textPrimary,
-        elevation: 0,
-        title: Text(title),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 56, color: AppColors.textPrimary),
-            const SizedBox(height: 12),
-            Text(
-              subtitle,
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
             ),
           ],
         ),

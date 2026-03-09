@@ -306,31 +306,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
 
                         _Dimens.gap24,
-                        const _DividerOr(),
-                        _Dimens.gap24,
-
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: _handleGoogleLogin,
-                            style: _Styles.googleButtonStyle(),
-                            icon: const Icon(
-                              Icons.g_mobiledata,
-                              color: AppColors.textPrimary,
-                              size: 28,
-                            ),
-                            label: const Text(
-                              'Continue with Google',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        _Dimens.gap24,
+                a
                         TextButton(
                           onPressed: _goToRegister,
                           child: const Text.rich(

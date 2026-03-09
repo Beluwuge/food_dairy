@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-import 'services/db/mealdb_api.dart';
-import 'services/db/meal_ingredients.dart';
-import 'services/db/usda_nutrition_api.dart';
+import 'services/db/app_database.dart';
 import 'services/db/calorie_estimator.dart';
+import 'services/db/meal_ingredients.dart';
+import 'services/db/mealdb_api.dart';
+import 'services/db/recipe_feed_repository.dart';
+import 'services/db/usda_nutrition_api.dart';
+import 'services/shared_preference_helper.dart';
 
 class RecipeGridPage extends StatefulWidget {
   const RecipeGridPage({super.key});
@@ -16,29 +19,25 @@ class RecipeGridPage extends StatefulWidget {
 class _RecipeGridPageState extends State<RecipeGridPage> {
   final _api = MealDbApi();
   final _scroll = ScrollController();
+  final _db = AppDatabase.instance;
+  final _repository = RecipeFeedRepository.instance;
 
-  // USDA key
   static const String _usdaKey = '0aywdxu7epTDBs9RAFhlCbAUqvw1AHFfTvg4x4bc';
   late final CalorieEstimator _estimator =
   CalorieEstimator(UsdaNutritionApi(apiKey: _usdaKey));
 
-  // Feed letters a..z auto-load
-  int _letterIndex = 0; // 0=a
   bool _loadingMore = false;
-  bool _done = false;
+  String? _username;
 
-  // Combined list across letters
   final List<Map<String, dynamic>> _meals = [];
-
-  // Cache full meal details so we don't refetch
   final Map<String, Map<String, dynamic>> _mealDetailsCache = {};
-  // Cache calories per meal id
   final Map<String, int> _calorieCache = {};
+  final Map<String, bool> _likedCache = {};
 
   @override
   void initState() {
     super.initState();
-    _loadNextFeed();
+    _initUserAndFeed();
 
     _scroll.addListener(() {
       if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 300) {
@@ -47,38 +46,27 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
     });
   }
 
+  Future<void> _initUserAndFeed() async {
+    _username = await SharedPreferenceHelper.currentUsername() ?? 'legacy';
+    if (mounted) setState(() {});
+    await _loadNextFeed();
+  }
+
   @override
   void dispose() {
     _scroll.dispose();
     super.dispose();
   }
 
-  String _currentLetter() => String.fromCharCode('a'.codeUnitAt(0) + _letterIndex);
-
   Future<void> _loadNextFeed() async {
-    if (_loadingMore || _done) return;
-    if (_letterIndex > 25) {
-      setState(() => _done = true);
-      return;
-    }
+    if (_loadingMore || _repository.isDone) return;
 
     setState(() => _loadingMore = true);
     try {
-      final letter = _currentLetter();
-      final nextMeals = await _api.listMealsByFirstLetter(letter);
-
-      // Add only if not empty; still move to next letter either way (to avoid infinite loop)
-      if (nextMeals.isNotEmpty) {
-        _meals.addAll(nextMeals);
-      }
-
-      _letterIndex++;
-      if (_letterIndex > 25) _done = true;
-      if (mounted) setState(() {});
-    } catch (e) {
-      // If a letter feed fails, skip it and continue
-      _letterIndex++;
-      if (_letterIndex > 25) _done = true;
+      final loaded = await _repository.loadNextBatch();
+      _meals
+        ..clear()
+        ..addAll(loaded);
       if (mounted) setState(() {});
     } finally {
       if (mounted) setState(() => _loadingMore = false);
@@ -92,7 +80,6 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
     final cached = _mealDetailsCache[id];
     if (cached != null) return cached;
 
-    // Some endpoints already return full details; check ingredient field
     final hasIngredients = meal.containsKey('strIngredient1');
     final details = hasIngredients ? meal : await _api.lookupMealById(id);
 
@@ -112,8 +99,51 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
     return kcal;
   }
 
+  Future<bool> _isLiked(String username, String mealId) async {
+    final cached = _likedCache[mealId];
+    if (cached != null) return cached;
+
+    final liked = await _db.isRecipeLiked(username: username, recipeId: mealId);
+    _likedCache[mealId] = liked;
+    return liked;
+  }
+
+  Future<void> _toggleLike({
+    required String username,
+    required Map<String, dynamic> meal,
+    int? calories,
+  }) async {
+    final mealId = (meal['idMeal'] ?? '').toString();
+    if (mealId.isEmpty) return;
+
+    final current = _likedCache[mealId] ?? await _isLiked(username, mealId);
+
+    if (current) {
+      await _db.unlikeRecipe(username: username, recipeId: mealId);
+      _likedCache[mealId] = false;
+    } else {
+      await _db.likeRecipe(
+        username: username,
+        recipeId: mealId,
+        recipeName: (meal['strMeal'] ?? '').toString(),
+        cuisine: (meal['strArea'] ?? '').toString(),
+        calories: calories,
+      );
+      _likedCache[mealId] = true;
+    }
+
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openPost(BuildContext context, Map<String, dynamic> meal) async {
     final details = await _getMealDetails(meal);
+    if (!context.mounted) return;
+
+    final username =
+        _username ?? await SharedPreferenceHelper.currentUsername() ?? 'legacy';
+    final mealId = (details['idMeal'] ?? '').toString();
+    final liked = mealId.isEmpty ? false : await _isLiked(username, mealId);
+
     if (!context.mounted) return;
 
     showModalBottomSheet(
@@ -126,12 +156,18 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
       builder: (_) => _RecipePostSheet(
         meal: details,
         getCalories: _getCaloriesForMeal,
+        initialLiked: liked,
+        onToggleLike: (int? kcal) async {
+          await _toggleLike(username: username, meal: details, calories: kcal);
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final usernameReady = _username != null;
+
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
       appBar: AppBar(
@@ -150,10 +186,10 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
           mainAxisSpacing: 2,
           childAspectRatio: 1,
         ),
-        itemCount: _meals.length + 1, // +1 for footer loader
+        itemCount: _meals.length + 1,
         itemBuilder: (context, i) {
           if (i == _meals.length) {
-            if (_done) {
+            if (_repository.isDone) {
               return const Center(
                 child: Padding(
                   padding: EdgeInsets.all(8),
@@ -164,6 +200,7 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
                 ),
               );
             }
+
             return Center(
               child: _loadingMore
                   ? const SizedBox(
@@ -177,26 +214,91 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
 
           final m = _meals[i];
           final thumb = (m['strMealThumb'] ?? '').toString();
+          final mealId = (m['idMeal'] ?? '').toString();
+          final username = _username ?? 'legacy';
 
-          return InkWell(
-            onTap: () => _openPost(context, m),
-            child: Container(
-              color: const Color(0xFF121212),
-              child: CachedNetworkImage(
-                imageUrl: thumb,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => const Center(
-                  child: SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+          if (!usernameReady || mealId.isEmpty) {
+            return InkWell(
+              onTap: () => _openPost(context, m),
+              child: Container(
+                color: const Color(0xFF121212),
+                child: CachedNetworkImage(
+                  imageUrl: thumb,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) => const Center(
+                    child: SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  errorWidget: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image, color: Colors.white54),
                   ),
                 ),
-                errorWidget: (_, __, ___) => const Center(
-                  child: Icon(Icons.broken_image, color: Colors.white54),
-                ),
               ),
-            ),
+            );
+          }
+
+          return FutureBuilder<bool>(
+            future: _isLiked(username, mealId),
+            builder: (context, likeSnap) {
+              final isLiked = likeSnap.data ?? false;
+
+              return InkWell(
+                onTap: () => _openPost(context, m),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Container(
+                        color: const Color(0xFF121212),
+                        child: CachedNetworkImage(
+                          imageUrl: thumb,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => const Center(
+                            child: SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) => const Center(
+                            child: Icon(Icons.broken_image, color: Colors.white54),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: GestureDetector(
+                        onTap: () async {
+                          final kcal = await _getCaloriesForMeal(m);
+                          await _toggleLike(
+                            username: username,
+                            meal: m,
+                            calories: kcal,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.35),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Icon(
+                            isLiked ? Icons.favorite : Icons.favorite_border,
+                            size: 18,
+                            color: isLiked ? Colors.redAccent : Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           );
         },
       ),
@@ -204,23 +306,46 @@ class _RecipeGridPageState extends State<RecipeGridPage> {
   }
 }
 
-class _RecipePostSheet extends StatelessWidget {
+class _RecipePostSheet extends StatefulWidget {
   const _RecipePostSheet({
     required this.meal,
     required this.getCalories,
+    required this.initialLiked,
+    required this.onToggleLike,
   });
 
   final Map<String, dynamic> meal;
   final Future<int?> Function(Map<String, dynamic>) getCalories;
+  final bool initialLiked;
+  final Future<void> Function(int? kcal) onToggleLike;
+
+  @override
+  State<_RecipePostSheet> createState() => _RecipePostSheetState();
+}
+
+class _RecipePostSheetState extends State<_RecipePostSheet> {
+  late bool _liked;
+  int? _kcal;
+
+  @override
+  void initState() {
+    super.initState();
+    _liked = widget.initialLiked;
+
+    widget.getCalories(widget.meal).then((v) {
+      if (!mounted) return;
+      setState(() => _kcal = v);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final title = (meal['strMeal'] ?? '').toString();
-    final img = (meal['strMealThumb'] ?? '').toString();
-    final category = (meal['strCategory'] ?? '').toString();
-    final area = (meal['strArea'] ?? '').toString();
-    final instructions = (meal['strInstructions'] ?? '').toString();
-    final ingredients = extractIngredients(meal);
+    final title = (widget.meal['strMeal'] ?? '').toString();
+    final img = (widget.meal['strMealThumb'] ?? '').toString();
+    final category = (widget.meal['strCategory'] ?? '').toString();
+    final area = (widget.meal['strArea'] ?? '').toString();
+    final instructions = (widget.meal['strInstructions'] ?? '').toString();
+    final ingredients = extractIngredients(widget.meal);
 
     return SafeArea(
       child: DraggableScrollableSheet(
@@ -244,7 +369,6 @@ class _RecipePostSheet extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
                   child: Row(
@@ -268,13 +392,23 @@ class _RecipePostSheet extends StatelessWidget {
                         ),
                       ),
                       IconButton(
+                        onPressed: () async {
+                          await widget.onToggleLike(_kcal);
+                          if (!mounted) return;
+                          setState(() => _liked = !_liked);
+                        },
+                        icon: Icon(
+                          _liked ? Icons.favorite : Icons.favorite_border,
+                          color: _liked ? Colors.redAccent : Colors.white70,
+                        ),
+                      ),
+                      IconButton(
                         onPressed: () => Navigator.pop(context),
                         icon: const Icon(Icons.close, color: Colors.white70),
                       ),
                     ],
                   ),
                 ),
-
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Wrap(
@@ -283,27 +417,22 @@ class _RecipePostSheet extends StatelessWidget {
                     children: [
                       _Chip(text: category.isEmpty ? 'Unknown category' : category),
                       _Chip(text: area.isEmpty ? 'Unknown area' : area),
-                      FutureBuilder<int?>(
-                        future: getCalories(meal),
-                        builder: (context, snap) {
-                          if (snap.connectionState != ConnectionState.done) {
-                            return const _Chip(text: 'Calories: ...');
-                          }
-                          final kcal = snap.data;
-                          return _Chip(text: kcal == null ? 'Calories: N/A' : 'Calories: $kcal kcal');
-                        },
+                      _Chip(
+                        text: _kcal == null ? 'Calories: ...' : 'Calories: $_kcal kcal',
                       ),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
                     'Ingredients',
-                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -312,7 +441,10 @@ class _RecipePostSheet extends StatelessWidget {
                   child: Column(
                     children: ingredients.isEmpty
                         ? const [
-                      Text('No ingredients found.', style: TextStyle(color: Colors.white70)),
+                      Text(
+                        'No ingredients found.',
+                        style: TextStyle(color: Colors.white70),
+                      ),
                     ]
                         : ingredients
                         .map(
@@ -321,11 +453,17 @@ class _RecipePostSheet extends StatelessWidget {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('•  ', style: TextStyle(color: Colors.white70)),
+                            const Text(
+                              '•  ',
+                              style: TextStyle(color: Colors.white70),
+                            ),
                             Expanded(
                               child: Text(
                                 e,
-                                style: const TextStyle(color: Colors.white70, height: 1.25),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  height: 1.25,
+                                ),
                               ),
                             ),
                           ],
@@ -335,14 +473,16 @@ class _RecipePostSheet extends StatelessWidget {
                         .toList(),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
                     'Instructions',
-                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -377,7 +517,11 @@ class _Chip extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

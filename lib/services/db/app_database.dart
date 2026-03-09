@@ -10,10 +10,11 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _dbName = 'food_diary.db';
-  static const _dbVersion = 3; // ✅ bump to 3
+  static const _dbVersion = 4; // ✅ bump to 4 (adds liked_recipes)
 
   static const dishTable = 'dish_entries';
   static const intakeTable = 'daily_intake';
+  static const likedRecipesTable = 'liked_recipes';
 
   Database? _db;
 
@@ -57,13 +58,29 @@ class AppDatabase {
           )
         ''');
 
+        // ✅ NEW: liked recipes (from recipe_grid_page)
+        await db.execute('''
+          CREATE TABLE $likedRecipesTable (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            recipe_id TEXT NOT NULL,
+            recipe_name TEXT,
+            cuisine TEXT,
+            calories INTEGER,
+            created_at TEXT NOT NULL,
+            UNIQUE(username, recipe_id)
+          )
+        ''');
+
         // Optional indexes
         await db.execute('CREATE INDEX idx_dish_username ON $dishTable(username)');
         await db.execute('CREATE INDEX idx_intake_date ON $intakeTable(date)');
+        await db.execute('CREATE INDEX idx_liked_username ON $likedRecipesTable(username)');
+        await db.execute('CREATE INDEX idx_liked_recipe_id ON $likedRecipesTable(recipe_id)');
       },
 
       onUpgrade: (db, oldVersion, newVersion) async {
-        // v1 -> v2 created intake table (your previous upgrade)
+        // v1 -> v2 created intake table
         if (oldVersion < 2) {
           await db.execute('''
             CREATE TABLE $intakeTable (
@@ -77,10 +94,33 @@ class AppDatabase {
           await db.execute('CREATE INDEX idx_intake_date ON $intakeTable(date)');
         }
 
-        // ✅ v2 -> v3 add username to dish_entries
+        // v2 -> v3 add username to dish_entries
         if (oldVersion < 3) {
-          await db.execute('ALTER TABLE $dishTable ADD COLUMN username TEXT NOT NULL DEFAULT "legacy"');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_dish_username ON $dishTable(username)');
+          await db.execute(
+              'ALTER TABLE $dishTable ADD COLUMN username TEXT NOT NULL DEFAULT "legacy"');
+          await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_dish_username ON $dishTable(username)');
+        }
+
+        // ✅ v3 -> v4 add liked_recipes table
+        if (oldVersion < 4) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS $likedRecipesTable (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              username TEXT NOT NULL,
+              recipe_id TEXT NOT NULL,
+              recipe_name TEXT,
+              cuisine TEXT,
+              calories INTEGER,
+              created_at TEXT NOT NULL,
+              UNIQUE(username, recipe_id)
+            )
+          ''');
+
+          await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_liked_username ON $likedRecipesTable(username)');
+          await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_liked_recipe_id ON $likedRecipesTable(recipe_id)');
         }
       },
     );
@@ -95,7 +135,7 @@ class AppDatabase {
     return db.insert(dishTable, entry.toMap());
   }
 
-  // ✅ NEW: per-user posts
+  // ✅ per-user posts
   Future<List<DishEntry>> getDishesByUser(String username) async {
     final db = await database;
     final rows = await db.query(
@@ -107,7 +147,6 @@ class AppDatabase {
     return rows.map(DishEntry.fromMap).toList();
   }
 
-  // (Optional) keep global fetch if you still need it somewhere
   Future<List<DishEntry>> getAllDishes() async {
     final db = await database;
     final rows = await db.query(dishTable, orderBy: 'id DESC');
@@ -174,7 +213,7 @@ class AppDatabase {
     await db.delete(intakeTable, where: 'id = ?', whereArgs: [intakeId]);
   }
 
-  // ✅ NEW: intake filtered by username (JOIN on dish_entries.username)
+  // ✅ intake filtered by username (JOIN on dish_entries.username)
   Future<List<Map<String, Object?>>> getDailyIntakeRawForUser({
     required String username,
     required String dateKey,
@@ -188,5 +227,70 @@ class AppDatabase {
         AND d.username = ?
       ORDER BY i.id DESC
     ''', [dateKey, username]);
+  }
+
+  // ---------------- Liked Recipes (from Recipe Grid) ----------------
+
+  Future<void> likeRecipe({
+    required String username,
+    required String recipeId,
+    String? recipeName,
+    String? cuisine,
+    int? calories,
+  }) async {
+    final db = await database;
+
+    await db.insert(
+      likedRecipesTable,
+      {
+        'username': username,
+        'recipe_id': recipeId,
+        'recipe_name': recipeName,
+        'cuisine': cuisine,
+        'calories': calories,
+        'created_at': DateTime.now().toIso8601String(),
+      },
+      // With UNIQUE(username, recipe_id), this prevents duplicate likes.
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<void> unlikeRecipe({
+    required String username,
+    required String recipeId,
+  }) async {
+    final db = await database;
+    await db.delete(
+      likedRecipesTable,
+      where: 'username = ? AND recipe_id = ?',
+      whereArgs: [username, recipeId],
+    );
+  }
+
+  Future<bool> isRecipeLiked({
+    required String username,
+    required String recipeId,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      likedRecipesTable,
+      columns: ['id'],
+      where: 'username = ? AND recipe_id = ?',
+      whereArgs: [username, recipeId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<List<Map<String, dynamic>>> getLikedRecipes({
+    required String username,
+  }) async {
+    final db = await database;
+    return db.query(
+      likedRecipesTable,
+      where: 'username = ?',
+      whereArgs: [username],
+      orderBy: 'id DESC',
+    );
   }
 }

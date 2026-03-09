@@ -33,6 +33,7 @@ class _CameraPageState extends State<CameraPage> {
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
+
       final back = cameras.firstWhere(
             (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
@@ -47,6 +48,7 @@ class _CameraPageState extends State<CameraPage> {
       await controller.initialize();
 
       if (!mounted) return;
+
       setState(() {
         _controller = controller;
         _initializing = false;
@@ -68,27 +70,46 @@ class _CameraPageState extends State<CameraPage> {
     try {
       final xfile = await controller.takePicture();
 
-      // Move/copy to app documents so it persists
+      final tempPath = xfile.path;
+
+      // Persistent storage
       final docs = await getApplicationDocumentsDirectory();
       final imagesDir = Directory(p.join(docs.path, 'dish_images'));
+
       if (!await imagesDir.exists()) {
         await imagesDir.create(recursive: true);
       }
 
-      final filename = 'dish_${DateTime.now().millisecondsSinceEpoch}${p.extension(xfile.path)}';
+      final filename =
+          'dish_${DateTime.now().millisecondsSinceEpoch}${p.extension(tempPath)}';
+
       final newPath = p.join(imagesDir.path, filename);
 
-      await File(xfile.path).copy(newPath);
+      await File(tempPath).copy(newPath);
+
+      // IMPORTANT: delete temp camera file
+      try {
+        await File(tempPath).delete();
+      } catch (_) {}
 
       if (!mounted) return;
-      await Navigator.push(
+
+      final saved = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
           builder: (_) => DishDetailsPage(imagePath: newPath),
         ),
       );
 
-      // After returning, you can keep camera open
+      // If user cancels post, delete unused image
+      if (saved != true) {
+        try {
+          final f = File(newPath);
+          if (await f.exists()) {
+            await f.delete();
+          }
+        } catch (_) {}
+      }
     } catch (e) {
       _showError('Failed to take photo');
     } finally {
@@ -103,7 +124,10 @@ class _CameraPageState extends State<CameraPage> {
         title: const Text('Error'),
         content: Text(msg),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
         ],
       ),
     );
@@ -118,6 +142,7 @@ class _CameraPageState extends State<CameraPage> {
     }
 
     final controller = _controller;
+
     if (controller == null || !controller.value.isInitialized) {
       return Scaffold(
         appBar: AppBar(title: const Text('Camera')),
@@ -129,7 +154,9 @@ class _CameraPageState extends State<CameraPage> {
       appBar: AppBar(title: const Text('Camera')),
       body: Stack(
         children: [
-          Positioned.fill(child: CameraPreview(controller)),
+          Positioned.fill(
+            child: CameraPreview(controller),
+          ),
           Positioned(
             left: 0,
             right: 0,
